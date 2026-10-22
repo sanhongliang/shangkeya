@@ -613,6 +613,7 @@ fn rd_u32(d: &[u8], o: usize, le: bool) -> u32 {
 /// 基于 Windows 自带 OCR（WinRT Windows.Media.Ocr，中文系统默认支持简体中文）。
 /// 为提高艺术字/大号文字的识别率，依次尝试：原图 → 3×放大灰度 → 3×放大灰度+二值化。
 /// 任何失败（OCR 不可用 / 文件损坏 / 无语言包）返回 Err，前端据此选择不跳过（安全回退）。
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn tiff_first_frame_text(path: String) -> Result<String, String> {
     use windows::core::HSTRING;
@@ -699,7 +700,14 @@ fn tiff_first_frame_text(path: String) -> Result<String, String> {
     Ok(String::new())
 }
 
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn tiff_first_frame_text(_path: String) -> Result<String, String> {
+    Err("TIFF 首页 OCR 仅支持 Windows".to_string())
+}
 /// 读取 SoftwareBitmap 的 BGRA8 像素
+#[cfg(target_os = "windows")]
 fn bitmap_pixels(bitmap: &windows::Graphics::Imaging::SoftwareBitmap) -> Result<Vec<u8>, String> {
     use windows::core::Interface;
     use windows::Graphics::Imaging::BitmapBufferAccessMode;
@@ -720,6 +728,7 @@ fn bitmap_pixels(bitmap: &windows::Graphics::Imaging::SoftwareBitmap) -> Result<
 }
 
 /// 由 BGRA8 像素构造 SoftwareBitmap
+#[cfg(target_os = "windows")]
 fn make_bgra_bitmap(
     pixels: &[u8],
     w: u32,
@@ -888,6 +897,7 @@ mod tests {
 }
 
 /// 取窗口的 Win32 HWND
+#[cfg(target_os = "windows")]
 fn window_hwnd(win: &tauri::WebviewWindow) -> Option<windows::Win32::Foundation::HWND> {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     let Ok(handle) = win.window_handle() else { return None };
@@ -898,6 +908,7 @@ fn window_hwnd(win: &tauri::WebviewWindow) -> Option<windows::Win32::Foundation:
 }
 
 /// 将窗口抬升到 Z 序顶部（不抢焦点）：用于课堂窗口激活时把黑板窗口提到课堂之上
+#[cfg(target_os = "windows")]
 fn raise_window_no_focus(win: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -910,6 +921,7 @@ fn raise_window_no_focus(win: &tauri::WebviewWindow) {
 
 /// 把 target 窗口插到 anchor 窗口之上（不抬升 anchor 的 owner 组，不抢焦点）：
 /// 用于课堂弹窗（课堂子窗口）显示在黑板之上，同时课堂窗口保持原位（黑板仍在课堂之前）
+#[cfg(target_os = "windows")]
 fn raise_above_window(target: &tauri::WebviewWindow, anchor: &tauri::WebviewWindow) {
     use windows::Win32::UI::WindowsAndMessaging::{
         SetWindowPos, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
@@ -921,6 +933,7 @@ fn raise_above_window(target: &tauri::WebviewWindow, anchor: &tauri::WebviewWind
 }
 
 /// 前端兜底：答案窗口等课堂弹窗创建后主动抬升到黑板之上（不抢焦点）
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn raise_window(app: tauri::AppHandle, label: String) {
     if let Some(w) = app.get_webview_window(&label) {
@@ -928,7 +941,12 @@ fn raise_window(app: tauri::AppHandle, label: String) {
     }
 }
 
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn raise_window(_app: tauri::AppHandle, _label: String) {}
 /// 前端兜底：把 target 窗口插到 anchor 窗口之上（不抬升 owner 组）
+#[cfg(target_os = "windows")]
 #[tauri::command]
 fn raise_above(app: tauri::AppHandle, target: String, anchor: String) {
     if let (Some(t), Some(a)) = (
@@ -939,6 +957,10 @@ fn raise_above(app: tauri::AppHandle, target: String, anchor: String) {
     }
 }
 
+
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn raise_above(_app: tauri::AppHandle, _target: String, _anchor: String) {}
 /// 向黑板窗口分发事件：绕过前端 emitTo（owned 子窗口偶发收不到），由 Rust 端直接 emit_to
 #[tauri::command]
 fn board_emit(app: tauri::AppHandle, event: String, payload: Option<serde_json::Value>) {
