@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>pixel test</title>
+<style>
+  body { margin: 0; background: #000; }
+  .wrap { position: relative; width: 900px; height: 200px; }
+  #ta {
+    position: absolute; left: 20px; top: 40px; width: 860px; height: 140px;
+    padding: 0; border: 0; margin: 0;
+    font: 72px 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    line-height: 1.15; background: #111;
+    color: #ff0000; resize: none; overflow: hidden;
+  }
+  #cv { position: absolute; left: 20px; top: 40px; width: 860px; height: 140px; background: transparent; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <textarea id="ta" spellcheck="false">人口</textarea>
+  <canvas id="cv" width="860" height="140"></canvas>
+</div>
+<script>
+const ta = document.getElementById('ta');
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const txt = '人口';
+ctx.font = "72px 'Microsoft YaHei', 'Segoe UI', sans-serif";
+ctx.textBaseline = 'alphabetic';
+const m = ctx.measureText(txt);
+const asc = m.actualBoundingBoxAscent;
+ctx.fillStyle = '#00d0ff';
+ctx.fillText(txt, 0, 0 + 3 + asc);
+</script>
+</body>
+</html>

@@ -1,0 +1,11 @@
+﻿
+> miaoda-react-standard-webapp-app@0.1.0 tauri
+> tauri build
+
+node.exe :         Info Looking up installed tauri packages to check mismatched versions...
+所在位置 行:1 字符: 1
++ & "C:\Users\Administrator\AppData\Local\Doubao\User Data\sandbox_runt ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (        Info Lo...hed versions...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 

@@ -1,0 +1,44 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "主窗口与课堂独立窗口默认能力：核心 + 对话框 + 文件读写（临时/应用数据目录）",
+  "windows": ["main", "classroom-*", "answer-*", "remark-*", "blackboard-canvas", "addcw-*", "confirm-*"],
+  "permissions": [
+    "core:default",
+    "core:webview:allow-create-webview-window",
+    "core:window:allow-close",
+    "core:window:allow-set-title",
+    "core:window:allow-set-position",
+    "core:window:allow-set-size",
+    "core:window:allow-inner-position",
+    "core:window:allow-outer-position",
+    "core:window:allow-inner-size",
+    "core:window:allow-outer-size",
+    "core:window:allow-scale-factor",
+    "core:window:allow-is-visible",
+    "core:window:allow-is-minimized",
+    "core:window:allow-minimize",
+    "core:window:allow-unminimize",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-start-dragging",
+    "dialog:default",
+    {
+      "identifier": "fs:read-all",
+      "allow": [
+        { "path": "$TEMP/**" },
+        { "path": "$APPDATA/**" },
+        { "path": "D:\\新版课件\\**" }
+      ]
+    },
+    {
+      "identifier": "fs:write-all",
+      "allow": [{ "path": "$TEMP/**" }, { "path": "$APPDATA/**" }]
+    },
+    {
+      "identifier": "fs:allow-remove",
+      "allow": [{ "path": "$APPDATA/**" }]
+    }
+  ]
+}

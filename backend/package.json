@@ -1,0 +1,25 @@
+{
+  "name": "shangkeya-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "上课鸭 云服务端：学员/课程/课表/充值/成绩/公告/设置 API（PostgreSQL）",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "start": "node src/index.js",
+    "db:init": "node scripts/db-init.js",
+    "seed:admin": "node scripts/seed-admin.js"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "lunar-javascript": "^1.7.7",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "embedded-postgres": "18.4.0-beta.17"
+  }
+}

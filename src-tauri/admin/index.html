@@ -1,0 +1,428 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>上课鸭 · 充值管理后台</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:"Microsoft YaHei","PingFang SC",sans-serif; background:#EFF4F9; color:#22303E; }
+  .hide { display:none !important; }
+  #loginView { min-height:100vh; display:flex; align-items:center; justify-content:center;
+      background:linear-gradient(135deg,#F5FBFE 0%,#E0EEF9 100%); }
+  .login-card { width:360px; background:#fff; border-radius:14px; padding:34px 32px;
+      box-shadow:0 10px 30px rgba(21,85,140,.15); }
+  .login-card h1 { font-size:20px; color:#15558C; text-align:center; margin-bottom:6px; }
+  .login-card .sub { text-align:center; color:#8A9BA8; font-size:13px; margin-bottom:24px; }
+  .login-card input { width:100%; padding:10px 12px; margin-bottom:14px; border:1px solid #A8CDE8;
+      border-radius:8px; font-size:14px; }
+  .login-card input:focus { outline:none; border-color:#2F80C3; }
+  .login-card button { width:100%; padding:11px; background:#3A93D0; color:#fff; border:none;
+      border-radius:8px; font-size:15px; font-weight:bold; cursor:pointer; }
+  .login-card button:hover { background:#2F80C3; }
+  .login-card .err { color:#D43C3C; font-size:13px; text-align:center; min-height:20px; }
+  header { background:#15558C; color:#fff; padding:12px 22px; display:flex; align-items:center; flex-wrap:wrap; gap:10px; }
+  header .brand { font-size:17px; font-weight:bold; }
+  header nav { margin-left:18px; display:flex; gap:6px; }
+  header nav span { padding:7px 16px; border-radius:8px; cursor:pointer; font-size:14px; }
+  header nav span.active, header nav span:hover { background:rgba(255,255,255,.18); }
+  header .right { margin-left:auto; font-size:13px; opacity:.9; cursor:pointer; }
+  .wrap { max-width:1180px; margin:22px auto; padding:0 18px; }
+  .cards { display:grid; grid-template-columns:repeat(5,1fr); gap:14px; }
+  @media (max-width:900px){ .cards{grid-template-columns:repeat(3,1fr);} }
+  .card { background:#fff; border-radius:12px; padding:18px 20px; box-shadow:0 2px 8px rgba(21,85,140,.08); }
+  .card .num { font-size:28px; font-weight:bold; color:#15558C; margin-top:6px; }
+  .card .lbl { font-size:13px; color:#8A9BA8; }
+  .card .num.ok { color:#2E9E5B; } .card .num.bad { color:#D43C3C; } .card .num.warn { color:#E08B00; }
+  .panel { background:#fff; border-radius:12px; padding:18px 20px; margin-top:16px;
+      box-shadow:0 2px 8px rgba(21,85,140,.08); }
+  .panel h2 { font-size:16px; color:#15558C; margin-bottom:14px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:9px 10px; text-align:left; border-bottom:1px solid #E3EDF6; }
+  th { background:#F2F8FC; color:#15558C; font-weight:bold; }
+  tr:hover td { background:#F7FBFE; }
+  .tag { display:inline-block; padding:2px 10px; border-radius:20px; font-size:12px; }
+  .tag.on { background:#E2F4EA; color:#1E7A43; }
+  .tag.off { background:#F0F0F0; color:#666; }
+  .tag.blue { background:#E3EEFB; color:#15558C; }
+  .tag.warn { background:#FFF3D6; color:#9A6B00; }
+  .tag.bad { background:#FCE7E7; color:#B33131; }
+  button.sm { padding:4px 12px; border:1px solid #B8D8F0; background:#DCEEFB; color:#15558C;
+      border-radius:6px; cursor:pointer; font-size:12px; }
+  button.sm:hover { background:#CDE6F8; }
+  button.danger { border-color:#F0B8B8; background:#FBEAEA; color:#B33131; }
+  button.danger:hover { background:#F7DDDD; }
+  .toolbar { display:flex; gap:10px; align-items:center; margin-bottom:12px; flex-wrap:wrap; }
+  .toolbar select, .toolbar input { padding:7px 10px; border:1px solid #A8CDE8; border-radius:7px; font-size:13px; }
+  .toolbar button { padding:7px 18px; background:#3A93D0; color:#fff; border:none; border-radius:7px;
+      cursor:pointer; font-size:13px; }
+  .pager { margin-top:12px; display:flex; gap:8px; align-items:center; justify-content:flex-end; font-size:13px; }
+  .pager button { padding:4px 12px; border:1px solid #B8D8F0; background:#fff; color:#15558C;
+      border-radius:6px; cursor:pointer; font-size:12px; }
+  .form { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px; align-items:end; }
+  @media (max-width:900px){ .form{grid-template-columns:repeat(2,1fr);} }
+  .form label { font-size:12px; color:#8A9BA8; display:block; margin-bottom:4px; }
+  .form input, .form select { width:100%; padding:8px 10px; border:1px solid #A8CDE8; border-radius:7px; font-size:13px; }
+  .form button { padding:9px 18px; background:#3A93D0; color:#fff; border:none; border-radius:7px;
+      cursor:pointer; font-size:13px; font-weight:bold; }
+  .empty { color:#8A9BA8; text-align:center; padding:26px; }
+  .codes { font-family:Consolas,monospace; font-size:12px; background:#F2F8FC; border-radius:7px;
+      padding:10px; max-height:150px; overflow:auto; white-space:pre-wrap; }
+  .mono { font-family:Consolas,monospace; }
+</style>
+</head>
+<body>
+
+<div id="loginView">
+  <div class="login-card">
+    <h1>上课鸭 · 充值管理后台</h1>
+    <div class="sub">管理员登录</div>
+    <input id="admUser" placeholder="管理员账号" autocomplete="off">
+    <input id="admPwd" type="password" placeholder="密码">
+    <div class="err" id="loginErr"></div>
+    <button onclick="doLogin()">登 录</button>
+  </div>
+</div>
+
+<div id="mainView" class="hide">
+  <header>
+    <div class="brand">上课鸭 · 充值管理</div>
+    <nav>
+      <span class="active" data-v="dash" onclick="showTab('dash')">仪表盘</span>
+      <span data-v="cards" onclick="showTab('cards')">充值卡</span>
+      <span data-v="records" onclick="showTab('records')">兑换记录</span>
+      <span data-v="teachers" onclick="showTab('teachers')">老师管理</span>
+      <span data-v="announce" onclick="showTab('announce')">公告设置</span>
+    </nav>
+    <div class="right" onclick="logout()">退出登录</div>
+  </header>
+
+  <div class="wrap">
+    <div id="tab-dash">
+      <div class="cards">
+        <div class="card"><div class="lbl">老师总数</div><div class="num" id="sTeachers">-</div></div>
+        <div class="card"><div class="lbl">即将到期（7天内）</div><div class="num warn" id="sSoon">-</div></div>
+        <div class="card"><div class="lbl">已过期</div><div class="num bad" id="sExpired">-</div></div>
+        <div class="card"><div class="lbl">充值卡（未用）</div><div class="num ok" id="sUnused">-</div></div>
+        <div class="card"><div class="lbl">累计续期天数</div><div class="num" id="sTotal">-</div></div>
+      </div>
+      <div class="panel">
+        <h2>老师到期状态</h2>
+        <table id="dashTeacherTable"><thead><tr><th>用户名</th><th>到期时间</th><th>剩余天数</th><th>状态</th></tr></thead><tbody></tbody></table>
+      </div>
+    </div>
+
+    <div id="tab-cards" class="hide">
+      <div class="panel">
+        <h2>生成充值卡（用于给老师账号续期）</h2>
+        <div class="form">
+          <div><label>卡类型</label>
+            <select id="genType">
+              <option value="week">周卡（7天）</option>
+              <option value="month" selected>月卡（30天）</option>
+              <option value="half_year">半年卡（180天）</option>
+              <option value="year">年卡（365天）</option>
+            </select>
+          </div>
+          <div><label>数量</label><input id="genCount" type="number" value="10" min="1" max="500"></div>
+          <div><button onclick="genCards()">生 成</button></div>
+          <div></div>
+        </div>
+        <div class="codes" id="genCodes" style="display:none"></div>
+      </div>
+      <div class="panel">
+        <h2>充值卡列表</h2>
+        <div class="toolbar">
+          <select id="cardFilter" onchange="loadCards(1)">
+            <option value="all">全部</option>
+            <option value="unused">未使用</option>
+            <option value="used">已使用</option>
+            <option value="disabled">已停用</option>
+          </select>
+          <span style="color:#8A9BA8;font-size:13px" id="cardCount"></span>
+        </div>
+        <table id="cardTable">
+          <thead><tr><th>卡号</th><th>类型</th><th>状态</th><th>兑换老师</th><th>兑换时间</th><th>创建时间</th><th>操作</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="pager" id="cardPager"></div>
+      </div>
+    </div>
+
+    <div id="tab-records" class="hide">
+      <div class="panel">
+        <h2>兑换记录</h2>
+        <table id="recordTable">
+          <thead><tr><th>兑换时间</th><th>老师</th><th>卡号</th><th>类型</th><th>续期天数</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="recordEmpty">暂无兑换记录</div>
+      </div>
+    </div>
+
+    <div id="tab-teachers" class="hide">
+      <div class="panel">
+        <h2>老师账号（共 <span id="tCount">-</span> 个）</h2>
+        <table id="teacherTable">
+          <thead><tr><th>用户名</th><th>注册时间</th><th>到期时间</th><th>剩余天数</th><th>状态</th></tr></thead>
+          <tbody></tbody>
+        </table>
+        <div class="empty" id="teacherEmpty">暂无老师账号</div>
+      </div>
+    </div>
+
+    <div id="tab-announce" class="hide">
+      <div class="panel">
+        <h2>公告设置（桌面端首页公告栏展示）</h2>
+        <div class="form" style="grid-template-columns:repeat(2,1fr)">
+          <div style="grid-column:1 / -1">
+            <label>公告标题</label>
+            <input id="annTitle" placeholder="例如：国庆放假通知" maxlength="80">
+          </div>
+          <div style="grid-column:1 / -1">
+            <label>公告内容</label>
+            <textarea id="annContent" rows="4" placeholder="公告正文内容" style="width:100%;padding:8px 10px;border:1px solid #A8CDE8;border-radius:7px;font-size:13px;font-family:inherit;resize:vertical"></textarea>
+          </div>
+          <div>
+            <label>到期时间（展示提示用，可留空）</label>
+            <input id="annExpire" type="datetime-local">
+          </div>
+          <div>
+            <label>状态</label>
+            <select id="annActive">
+              <option value="true">启用（桌面端显示）</option>
+              <option value="false">停用（桌面端不显示）</option>
+            </select>
+          </div>
+          <div>
+            <button onclick="saveAnnounce()" style="min-width:120px">保 存 公 告</button>
+          </div>
+        </div>
+        <div style="color:#8A9BA8;font-size:12px;margin-top:-8px">
+          保存后桌面端下次同步/启动即显示新公告；停用后公告不再显示。公告由后台统一维护，桌面端不会覆盖。
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+var API = '/api';
+var TOKEN_KEY = 'shangkeya:admin-token';
+
+function getToken(){ try { return localStorage.getItem(TOKEN_KEY) } catch(e){ return null } }
+function setToken(t){ try { if(t) localStorage.setItem(TOKEN_KEY, t); else localStorage.removeItem(TOKEN_KEY) } catch(e){} }
+
+async function j(path, opts){
+  opts = opts || {};
+  var res = await fetch(API + path, {
+    method: opts.method || 'GET',
+    headers: { 'Content-Type':'application/json', ...(getToken() ? { 'Authorization':'Bearer '+getToken() } : {}) },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  var data = await res.json().catch(function(){ return {} });
+  if (!res.ok) { throw new Error((data.error && data.error.message) || ('请求失败(' + res.status + ')')) }
+  return data;
+}
+
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return { '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c] }) }
+function fmtTime(s){ return s ? String(s).replace('T',' ').slice(0,16) : '-' }
+
+// ---- 登录 ----
+async function doLogin(){
+  var u = document.getElementById('admUser').value.trim();
+  var p = document.getElementById('admPwd').value;
+  document.getElementById('loginErr').textContent = '';
+  try {
+    var r = await j('/auth/login', { method:'POST', body:{ username:u, password:p }, headers:{'Content-Type':'application/json'} });
+    setToken(r.token);
+    if (r.user && r.user.role !== 'admin') { setToken(null); document.getElementById('loginErr').textContent = '该账号不是管理员'; return; }
+    showMain();
+  } catch(e){
+    document.getElementById('loginErr').textContent = e.message || '登录失败';
+  }
+}
+
+function logout(){ setToken(null); document.getElementById('mainView').classList.add('hide'); document.getElementById('loginView').classList.remove('hide'); }
+
+function showMain(){
+  document.getElementById('loginView').classList.add('hide');
+  document.getElementById('mainView').classList.remove('hide');
+  showTab('dash');
+}
+
+function showTab(v){
+  var navs = document.querySelectorAll('header nav span');
+  navs.forEach(function(n){ n.classList.toggle('active', n.getAttribute('data-v') === v) });
+  ['dash','cards','records','teachers','announce'].forEach(function(t){
+    document.getElementById('tab-' + t).classList.toggle('hide', t !== v);
+  });
+  if (v === 'dash') loadDash();
+  if (v === 'cards') loadCards(1);
+  if (v === 'records') loadRecords();
+  if (v === 'teachers') loadTeachers();
+  if (v === 'announce') loadAnnounce();
+}
+
+function stTag(status){
+  if (status === 'expired') return '<span class="tag bad">已过期</span>';
+  if (status === 'soon') return '<span class="tag warn">即将到期</span>';
+  return '<span class="tag on">正常</span>';
+}
+
+// ---- 仪表盘 ----
+async function loadDash(){
+  try {
+    var [ts, st] = await Promise.all([ j('/cards/teachers'), j('/cards/stats') ]);
+    var teachers = ts.teachers || [];
+    var cardsSt = st.stats || {};
+    var tSt = st.teachers || { n:0, soon:0, expired:0 };
+    document.getElementById('sTeachers').textContent = tSt.n || teachers.length;
+    document.getElementById('sSoon').textContent = tSt.soon || 0;
+    document.getElementById('sExpired').textContent = tSt.expired || 0;
+    document.getElementById('sUnused').textContent = (cardsSt.unused ? cardsSt.unused.count : 0);
+    document.getElementById('sTotal').textContent = (cardsSt.used ? cardsSt.used.total : 0) || 0;
+    var tb = document.querySelector('#dashTeacherTable tbody');
+    tb.innerHTML = teachers.length ? teachers.slice(0,10).map(function(t){
+      return '<tr><td>' + esc(t.username) + '</td><td>' + fmtTime(t.expires_at) + '</td><td>' + (t.days_left == null ? '-' : esc(t.days_left)) + '</td><td>' + stTag(t.status) + '</td></tr>';
+    }).join('') : '<tr><td colspan="4" class="empty">暂无老师账号</td></tr>';
+  } catch(e){ alert('加载仪表盘失败：' + e.message) }
+}
+
+// ---- 充值卡 ----
+async function genCards(){
+  var type = document.getElementById('genType').value;
+  var count = Number(document.getElementById('genCount').value);
+  if (!count || count < 1) { alert('请填写正确数量'); return }
+  try {
+    var r = await j('/cards/gen', { method:'POST', body:{ type: type, count: count } });
+    var box = document.getElementById('genCodes');
+    box.style.display = 'block';
+    box.textContent = '已生成 ' + r.count + ' 张' + r.type + '：\n' + r.codes.join('\n');
+    loadCards(1);
+  } catch(e){ alert('生成失败：' + e.message) }
+}
+
+var cardPage = 1;
+async function loadCards(page){
+  cardPage = page;
+  var status = document.getElementById('cardFilter').value;
+  var size = 50;
+  try {
+    var r = await j('/cards/list?status=' + status + '&page=' + page + '&size=' + size);
+    document.getElementById('cardCount').textContent = '共 ' + r.total + ' 张';
+    var tb = document.querySelector('#cardTable tbody');
+    tb.innerHTML = (r.cards || []).map(function(c){
+      var st;
+      if (c.status === 'used') st = '<span class="tag on">已使用</span>';
+      else if (c.status === 'disabled') st = '<span class="tag off">已停用</span>';
+      else st = '<span class="tag blue">未使用</span>';
+      var op = c.status === 'used'
+        ? '<span style="color:#8A9BA8">-</span>'
+        : '<button class="sm ' + (c.status === 'disabled' ? '' : 'danger') + '" onclick="toggleCard(' + c.id + ',\'' + (c.status === 'disabled' ? 'unused' : 'disabled') + '\')">' + (c.status === 'disabled' ? '启用' : '停用') + '</button>';
+      return '<tr><td class="mono">' + esc(c.code) + '</td><td>' + esc(c.type) + '</td><td>' + st + '</td><td>' + esc(c.account_name || '') + '</td><td>' + fmtTime(c.used_at) + '</td><td>' + fmtTime(c.created_at) + '</td><td>' + op + '</td></tr>';
+    }).join('');
+    if (!(r.cards || []).length) tb.innerHTML = '<tr><td colspan="7" class="empty">暂无充值卡</td></tr>';
+    renderPager('cardPager', r.page, Math.max(1, Math.ceil(r.total / size)));
+  } catch(e){ alert('加载充值卡失败：' + e.message) }
+}
+
+async function toggleCard(id, status){
+  if (!confirm(status === 'disabled' ? '确认停用该充值卡？' : '确认启用该充值卡？')) return;
+  try {
+    await j('/cards/toggle', { method:'POST', body:{ id:id, status:status } });
+    loadCards(cardPage);
+  } catch(e){ alert('操作失败：' + e.message) }
+}
+
+function renderPager(id, page, pages){
+  var el = document.getElementById(id);
+  if (!pages || pages <= 1) { el.innerHTML = ''; return }
+  var html = '';
+  if (page > 1) html += '<button onclick="loadCards(' + (page - 1) + ')">上一页</button>';
+  html += '<span>第 ' + page + ' / ' + pages + ' 页</span>';
+  if (page < pages) html += '<button onclick="loadCards(' + (page + 1) + ')">下一页</button>';
+  el.innerHTML = html;
+}
+
+// ---- 兑换记录 ----
+async function loadRecords(){
+  try {
+    var r = await j('/cards/list?status=used&page=1&size=200');
+    var rows = r.cards || [];
+    var tb = document.querySelector('#recordTable tbody');
+    tb.innerHTML = rows.length ? rows.map(function(c){
+      return '<tr><td>' + fmtTime(c.used_at) + '</td><td>' + esc(c.account_name || '') + '</td><td class="mono">' + esc(c.code) + '</td><td>' + esc(c.type) + '</td><td>' + esc(c.duration_days) + ' 天</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="empty">暂无兑换记录</td></tr>';
+  } catch(e){ alert('加载兑换记录失败：' + e.message) }
+}
+
+// ---- 老师管理 ----
+async function loadTeachers(){
+  try {
+    var r = await j('/cards/teachers');
+    var rows = r.teachers || [];
+    document.getElementById('tCount').textContent = rows.length;
+    var tb = document.querySelector('#teacherTable tbody');
+    tb.innerHTML = rows.length ? rows.map(function(t){
+      return '<tr><td>' + esc(t.username) + '</td><td>' + fmtTime(t.created_at) + '</td><td>' + fmtTime(t.expires_at) + '</td><td>' + (t.days_left == null ? '-' : esc(t.days_left)) + '</td><td>' + stTag(t.status) + '</td></tr>';
+    }).join('') : '<tr><td colspan="5" class="empty">暂无老师账号</td></tr>';
+  } catch(e){ alert('加载老师失败：' + e.message) }
+}
+
+// ---- 公告设置 ----
+var annId = null;
+async function loadAnnounce(){
+  annId = null;
+  document.getElementById('annTitle').value = '';
+  document.getElementById('annContent').value = '';
+  document.getElementById('annExpire').value = '';
+  document.getElementById('annActive').value = 'true';
+  try {
+    var r = await j('/announcements');
+    var rows = r.announcements || [];
+    if (!rows.length) return;
+    // 取最新一条（桌面端展示的也是最新一条）
+    var a = rows[0];
+    annId = a.id;
+    document.getElementById('annTitle').value = a.title || '';
+    document.getElementById('annContent').value = a.content || '';
+    var payload = a.payload || {};
+    if (payload.expireAt) {
+      var dt = String(payload.expireAt).replace(' ', 'T').slice(0, 16);
+      document.getElementById('annExpire').value = dt;
+    }
+    document.getElementById('annActive').value = a.active ? 'true' : 'false';
+  } catch(e){ alert('加载公告失败：' + e.message) }
+}
+
+async function saveAnnounce(){
+  var title = document.getElementById('annTitle').value.trim();
+  var content = document.getElementById('annContent').value.trim();
+  var expireAt = document.getElementById('annExpire').value;
+  var active = document.getElementById('annActive').value === 'true';
+  if (!title) { alert('请填写公告标题'); return }
+  var body = { title: title, content: content, active: active };
+  if (expireAt) body.expireAt = expireAt.replace('T', ' ');
+  try {
+    if (annId) {
+      await j('/announcements/' + annId, { method: 'PUT', body: body });
+    } else {
+      var r = await j('/announcements', { method: 'POST', body: { title: title, content: content } });
+      annId = r.announcement.id;
+      // 新建后再更新到期/启用状态（POST 不支持这两个字段）
+      await j('/announcements/' + annId, { method: 'PUT', body: body });
+    }
+    alert('公告已保存');
+  } catch(e){ alert('保存失败：' + e.message) }
+}
+
+// ---- 启动 ----
+(function(){
+  if (getToken()) showMain();
+  document.getElementById('admPwd').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin() });
+  document.getElementById('admUser').addEventListener('keydown', function(e){ if (e.key === 'Enter') doLogin() });
+})();
+</script>
+</body>
+</html>

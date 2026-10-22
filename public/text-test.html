@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>text measurement test</title>
+<style>
+  body { margin: 20px; font-size: 14px; }
+  .wrap { position: relative; }
+  #ed {
+    position: absolute; left: 20px; top: 100px; width: 300px;
+    padding: 0; border: 0; margin: 0;
+    font: 40px 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    line-height: 1.15; background: #eee; overflow: hidden;
+  }
+  #cv { position: absolute; left: 20px; top: 260px; background: #fff; }
+  #out { margin-top: 420px; white-space: pre; font: 14px monospace; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div id="ed" contenteditable spellcheck="false">你好ABC</div>
+  <canvas id="cv" width="340" height="140"></canvas>
+</div>
+<script>
+const out = [];
+const ed = document.getElementById('ed');
+const edRect = ed.getBoundingClientRect();
+const cs = getComputedStyle(ed);
+out.push('ed font-size=' + cs.fontSize + ' line-height=' + cs.lineHeight);
+const range = document.createRange();
+range.selectNodeContents(ed);
+const r0 = range.getClientRects()[0];
+out.push('ed first-line glyph top rel=' + (r0.top - edRect.top).toFixed(3) + ' left rel=' + (r0.left - edRect.left).toFixed(3));
+const rN = range.getClientRects();
+out.push('ed line count=' + rN.length + ' line h=' + (rN.length > 1 ? (rN[1].top - rN[0].top).toFixed(3) : 'n/a'));
+
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+ctx.font = "40px 'Microsoft YaHei', 'Segoe UI', sans-serif";
+const m = ctx.measureText('你');
+out.push('canvas asc=' + m.actualBoundingBoxAscent.toFixed(3) + ' desc=' + m.actualBoundingBoxAscent);
+// alphabetic：glyph 顶 = baselineY - ascent
+// top：glyph 顶 = baselineY
+// 结论：要让 canvas glyph 顶相对 = ed glyph 顶相对（0.075em 理论=1.5px@40px），baseline 应设在 baselineY = edRel + asc - (leadingHalf)
+ctx.textBaseline = 'alphabetic';
+ctx.fillText('你', 10, 60);
+out.push('canvas glyph top rel (alphabetic @y60) = ' + (60 - m.actualBoundingBoxAscent).toFixed(3));
+out.push('--> 若 ed 相对顶 = X，则 baseline 需 @ y = X + asc，且 glyph 顶= y - asc = X');
+out.push('--> leadingHalf(1.15) = ' + ((40*1.15-40)/2).toFixed(3) + 'px @40px');
+document.body.insertAdjacentHTML('beforeend', '<div id="out">' + out.join('\n') + '</div>');
+</script>
+</body>
+</html>

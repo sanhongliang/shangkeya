@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>textarea vs canvas glyph test</title>
+<style>
+  body { margin: 20px; background: #000; }
+  .wrap { position: relative; width: 340px; height: 140px; }
+  #ta {
+    position: absolute; left: 20px; top: 20px; width: 300px; height: 80px;
+    padding: 0; border: 0; margin: 0;
+    font: 40px 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    line-height: 1.15; background: rgba(255,255,255,0.06);
+    color: #ff0000; resize: none; overflow: hidden;
+  }
+  #cv { position: absolute; left: 20px; top: 20px; background: transparent; }
+  #log { margin-top: 160px; color: #0f0; font: 13px monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <textarea id="ta" spellcheck="false">人口大小</textarea>
+  <canvas id="cv" width="340" height="140"></canvas>
+</div>
+<div id="log"></div>
+<script>
+const log = [];
+const ta = document.getElementById('ta');
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const txt = '人口大小';
+// canvas 方案A：整段文字 ascent（当前代码）
+ctx.font = "40px 'Microsoft YaHei', 'Segoe UI', sans-serif";
+ctx.textBaseline = 'alphabetic';
+const m = ctx.measureText(txt);
+const asc = m.actualBoundingBoxAscent;
+ctx.fillStyle = '#00d0ff';
+ctx.fillText(txt, 20, 20 + 3 + asc);
+log.push('A 整段 asc=' + asc.toFixed(2) + ' glyphTop=20+3');
+// canvas 方案B：'M' ascent（旧代码）
+const mM = ctx.measureText('M');
+const ascM = mM.actualBoundingBoxAscent;
+ctx.fillStyle = 'rgba(255,255,0,0.7)';
+ctx.fillText(txt, 20, 20 + 3 + ascM);
+log.push('B M asc=' + ascM.toFixed(2) + ' glyphTop=20+3+(' + (ascM-asc).toFixed(2) + ')');
+// textarea 实际渲染尺寸信息
+const cs = getComputedStyle(ta);
+log.push('ta font=' + cs.fontSize + ' lh=' + cs.lineHeight + ' padding=' + cs.padding + ' border=' + cs.borderWidth);
+log.push('ta clientH=' + ta.clientHeight + ' scrollH=' + ta.scrollHeight);
+document.getElementById('log').textContent = log.join('\n');
+</script>
+</body>
+</html>

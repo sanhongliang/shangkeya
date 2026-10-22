@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>pixel test 4</title>
+<style>
+  body { margin: 0; background: #000; }
+  #ta {
+    position: absolute; left: 20px; top: 40px; width: 860px; height: 140px;
+    padding: 0; border: 0; margin: 0;
+    font: 72px 'Microsoft YaHei', 'Segoe UI', sans-serif;
+    line-height: 1.15; background: #111;
+    color: #ff0000; resize: none; overflow: hidden;
+  }
+  #cv { position: absolute; left: 20px; top: 240px; width: 860px; height: 140px; background: transparent; }
+  #guide1 { position: absolute; left: 20px; top: 40px; width: 860px; height: 1px; background: #00ff00; }
+  #guide2 { position: absolute; left: 20px; top: 240px; width: 860px; height: 1px; background: #00ff00; }
+</style>
+</head>
+<body>
+  <textarea id="ta" spellcheck="false">人口</textarea>
+  <div id="guide1"></div>
+  <canvas id="cv" width="860" height="140"></canvas>
+  <div id="guide2"></div>
+<script>
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d');
+const txt = '人口';
+ctx.font = "72px 'Microsoft YaHei', 'Segoe UI', sans-serif";
+ctx.textBaseline = 'alphabetic';
+const m = ctx.measureText(txt);
+const asc = m.actualBoundingBoxAscent;
+const fbb = typeof m.fontBoundingBoxAscent === 'number' ? m.fontBoundingBoxAscent : 'n/a';
+const fbd = typeof m.fontBoundingBoxDescent === 'number' ? m.fontBoundingBoxDescent : 'n/a';
+document.body.insertAdjacentHTML('beforeend', '<div style="position:absolute;top:400px;left:20px;color:#0f0;font:13px monospace">asc=' + asc + ' fbb=' + fbb + ' fbd=' + fbd + '</div>');
+ctx.fillStyle = '#00d0ff';
+ctx.fillText(txt, 0, 3 + asc);
+</script>
+</body>
+</html>
