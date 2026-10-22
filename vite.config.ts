@@ -118,6 +118,9 @@ export default defineConfig(({ command }) => ({
     },
   },
   build: {
+    // target 降低到 es2018：兼容 macOS 旧版 WKWebView（低版本 Safari 内核），
+    // 否则新语法在旧系统上解析失败导致白屏（Windows 的 Chromium 内核较新不受影响）
+    target: 'es2018',
     outDir: 'dist/client',
   },
 }));
