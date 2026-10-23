@@ -18,6 +18,7 @@ export interface IStudent {
 }
 
 export interface ISummary {
+  _t?: number; // 修改时间戳（较新优先合并）
   content: string; // 上课内容
   knowledge: string; // 涉及知识点
   behavior: number; // 课堂表现 1-5

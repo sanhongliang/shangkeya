@@ -105,11 +105,21 @@ export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
   const key = (c: ICourse) => `${c.studentId}|${c.date}|${c.start}`;
   const localKeys = new Set(local.map(key));
   const remoteByKey = new Map(remote.map((c) => [key(c), c]));
-  // 已有课程：云端有总结而本地没有（或云端总结非空）→ 用云端总结补进本地（手机端保存的总结同步到桌面端）
+  // 已有课程：总结冲突按修改时间戳较新优先（手机端/桌面端保存时都会带 _t）
+  //  - 都无 _t：以本地为准（桌面端编辑优先，不回写旧值）
+  //  - 只有一方有 _t：有 _t 的一方较新（旧数据补上时间戳后视为更新）
   const merged = local.map((lc) => {
     const rc = remoteByKey.get(key(lc));
-    if (rc && rc.summary) return { ...lc, summary: rc.summary };
-    return lc;
+    if (!rc) return lc;
+    const ls = lc.summary;
+    const rs = rc.summary;
+    if (!ls && !rs) return lc;
+    if (ls && !rs) return lc;
+    if (!ls && rs) return { ...lc, summary: rs };
+    const lt = ls?._t ?? 0;
+    const rt = rs?._t ?? 0;
+    if (lt >= rt) return lc;
+    return { ...lc, summary: rs };
   });
   for (const rc of remote) {
     const k = key(rc);

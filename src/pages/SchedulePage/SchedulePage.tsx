@@ -250,7 +250,7 @@ export default function SchedulePage() {
               remark: '',
               done: true,
               prep: true,
-              summary,
+              { ...summary, _t: Date.now() },
             },
           ],
     }));
