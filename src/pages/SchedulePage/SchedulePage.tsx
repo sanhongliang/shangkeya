@@ -27,6 +27,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScheduleItem, ISummary, IStudent } from '@/data/types';
 import { api } from '@/api/client';
+import { loadCloudState, syncCloudState } from '@/api/desktop';
 import { addDays, pad2, startOfWeek, toISO, WEEKDAYS_CN } from '@/lib/dates';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -230,41 +231,61 @@ export default function SchedulePage() {
     toast.success('课程已确认完成');
   };
 
-  const openSummary = () => {
+  const openSummary = async () => {
     if (!selectedCourse) return;
-    setSummaryCourse({
-      ...selectedCourse,
-      remark: selectedCourse.remark ?? '',
-      done: selectedCourse.done,
-      prep: true,
-    });
+    try {
+      // 直接从服务器加载最新课次数据（含总结），绕开本地缓存/合并导致的旧数据
+      const cloud = await loadCloudState();
+      const fresh =
+        (cloud.courses ?? []).find(
+          (c) =>
+            c.studentId === selectedCourse.studentId &&
+            c.date === selectedCourse.date &&
+            c.start === selectedCourse.start,
+        ) ?? selectedCourse;
+      setSummaryCourse({
+        ...fresh,
+        remark: fresh.remark ?? '',
+        done: fresh.done,
+        prep: true,
+      });
+    } catch {
+      setSummaryCourse({
+        ...selectedCourse,
+        remark: selectedCourse.remark ?? '',
+        done: selectedCourse.done,
+        prep: true,
+      });
+    }
     setSummaryOpen(true);
   };
 
   const saveSummary = (summary: ISummary) => {
     if (!summaryCourse) return;
+    const withT = { ...summary, _t: Date.now() } as ISummary;
     const existing = data.courses.some((c) => c.id === summaryCourse.id);
-    setData((prev) => ({
-      ...prev,
-      courses: existing
-        ? prev.courses.map((c) => (c.id === summaryCourse.id ? { ...c, summary: { ...summary, _t: Date.now() } } : c))
-        : [
-            ...prev.courses,
-            {
-              id: summaryCourse.id,
-              studentId: summaryCourse.studentId,
-              date: summaryCourse.date,
-              start: summaryCourse.start,
-              durationMin: summaryCourse.durationMin,
-              content: summaryCourse.content,
-              remark: '',
-              done: true,
-              prep: true,
-              summary: { ...summary, _t: Date.now() },
-            },
-          ],
-    }));
+    const nextCourses = existing
+      ? data.courses.map((c) => (c.id === summaryCourse.id ? { ...c, summary: withT } : c))
+      : [
+          ...data.courses,
+          {
+            id: summaryCourse.id,
+            studentId: summaryCourse.studentId,
+            date: summaryCourse.date,
+            start: summaryCourse.start,
+            durationMin: summaryCourse.durationMin,
+            content: summaryCourse.content,
+            remark: '',
+            done: true,
+            prep: true,
+            summary: withT,
+          },
+        ];
+    setData((prev) => ({ ...prev, courses: nextCourses }));
+    setSummaryCourse((prev) => (prev ? { ...prev, summary: withT } : prev));
     toast.success('课堂总结已保存，并记入开课记录');
+    // 立即同步到服务器（不等 800ms 防抖），保证下次打开拉到最新
+    void syncCloudState({ ...data, courses: nextCourses }).catch(() => undefined);
   };
 
   const enterClassroom = () => {
