@@ -118,7 +118,9 @@ export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
     if (!ls && rs) return { ...lc, summary: rs };
     const lt = ls?._t ?? 0;
     const rt = rs?._t ?? 0;
-    if (lt >= rt) return lc;
+    // 只有本地时间戳严格更新才保留本地；无 _t 或时间戳相同一律以云端为准（服务器是权威，
+    // 避免本地“打开弹窗时的默认值”覆盖手机端已保存的真实总结）
+    if (lt > rt) return lc;
     return { ...lc, summary: rs };
   });
   for (const rc of remote) {

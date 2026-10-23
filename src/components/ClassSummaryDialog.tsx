@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -60,14 +60,19 @@ export default function ClassSummaryDialog({
   const [homework, setHomework] = useState(4);
 
   // 打开弹窗或切换课程时，以当前课程预填
-  const handleOpenChange = (v: boolean) => {
-    if (v && course) {
+  // 注意：程序化 setOpen(true) 不会触发 Dialog 的 onOpenChange，因此必须用
+  // useEffect 监听 open/course 变化来预填，否则界面永远显示默认值
+  useEffect(() => {
+    if (open && course) {
       setContent(course.summary?.content ?? course.content ?? '');
       setKnowledge(course.summary?.knowledge ?? '');
       setBehavior(course.summary?.behavior ?? 4);
       setMastery(course.summary?.mastery ?? 4);
       setHomework(course.summary?.homework ?? 4);
     }
+  }, [open, course]);
+
+  const handleOpenChange = (v: boolean) => {
     onOpenChange(v);
   };
 

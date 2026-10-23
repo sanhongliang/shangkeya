@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import RechargeDialog from '@/components/RechargeDialog';
-import { fetchMyAccount } from '@/api/desktop';
+import { fetchMyAccount, loadCloudState } from '@/api/desktop';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IStudent } from '@/data/types';
 import { startOfMonth, toISO } from '@/lib/dates';
@@ -71,10 +71,10 @@ export default function HomePage() {
     const tauriMode = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
     if (tauriMode) {
       void import('@tauri-apps/api/window')
-        .then((m) => m.getCurrentWindow().setTitle('上课鸭—教学课程管理系统'))
+        .then((m) => m.getCurrentWindow().setTitle('上课鸭 v1.0.9—教学课程管理系统'))
         .catch(() => {});
     } else {
-      document.title = '上课鸭—教学课程管理系统';
+      document.title = '上课鸭 v1.0.9—教学课程管理系统';
     }
   }, []);
 
@@ -88,8 +88,21 @@ export default function HomePage() {
     .filter((c) => c.date === selectedDate)
     .sort((a, b) => (a.start < b.start ? -1 : 1));
 
-  const openSummary = (course: ICourse) => {
-    setSummaryCourse(course);
+  const openSummary = async (course: ICourse) => {
+    try {
+      // 直接从服务器加载最新课次（含总结），避免本地合并/缓存导致的旧数据
+      const cloud = await loadCloudState();
+      const fresh =
+        (cloud.courses ?? []).find(
+          (c) =>
+            c.studentId === course.studentId &&
+            c.date === course.date &&
+            c.start === course.start,
+        ) ?? course;
+      setSummaryCourse(fresh);
+    } catch {
+      setSummaryCourse(course);
+    }
     setSummaryOpen(true);
   };
 
