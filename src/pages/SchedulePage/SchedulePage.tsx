@@ -237,7 +237,7 @@ export default function SchedulePage() {
     setData((prev) => ({
       ...prev,
       courses: existing
-        ? prev.courses.map((c) => (c.id === summaryCourse.id ? { ...c, summary } : c))
+        ? prev.courses.map((c) => (c.id === summaryCourse.id ? { ...c, summary: { ...summary, _t: Date.now() } } : c))
         : [
             ...prev.courses,
             {
@@ -250,7 +250,7 @@ export default function SchedulePage() {
               remark: '',
               done: true,
               prep: true,
-              { ...summary, _t: Date.now() },
+              summary: { ...summary, _t: Date.now() },
             },
           ],
     }));
