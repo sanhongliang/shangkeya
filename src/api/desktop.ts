@@ -104,14 +104,17 @@ export async function loadCloudState(): Promise<Partial<IAppData>> {
 export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
   const key = (c: ICourse) => `${c.studentId}|${c.date}|${c.start}`;
   const localKeys = new Set(local.map(key));
-  const remoteKeys = new Set(remote.map(key));
-  const merged = [...local];
+  const remoteByKey = new Map(remote.map((c) => [key(c), c]));
+  // 已有课程：云端有总结而本地没有（或云端总结非空）→ 用云端总结补进本地（手机端保存的总结同步到桌面端）
+  const merged = local.map((lc) => {
+    const rc = remoteByKey.get(key(lc));
+    if (rc && rc.summary) return { ...lc, summary: rc.summary };
+    return lc;
+  });
   for (const rc of remote) {
     const k = key(rc);
     if (!localKeys.has(k)) {
       merged.push(rc); // 手机端新建的课次
-    } else if (!remoteKeys.has(k)) {
-      // 本地有、云端无 → 本地已存在（上面已包含）
     }
   }
   // 排序：按日期+时间
