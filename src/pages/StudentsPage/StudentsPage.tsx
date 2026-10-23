@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { useAppData } from '@/data/app-store';
 import type { IAppData, IStudent } from '@/data/types';
+import { api } from '@/api/client';
 import RecordsSection from './RecordsSection';
 import StudentInfoSection from './StudentInfoSection';
 import StudentListSection from './StudentListSection';
@@ -75,10 +76,11 @@ export default function StudentsPage() {
     toast.success(`学员「${target.name}」已移入历史学员`);
   };
 
-  // 历史学员：删除 = 彻底删除
-  const handleDeleteForever = (id: string) => {
+  // 历史学员：删除 = 彻底删除（同步删除服务器数据，防止刷新后恢复）
+  const handleDeleteForever = async (id: string) => {
     const target = data.archivedStudents.find((s) => s.id === id);
     if (!target) return;
+    await api('/api/desktop/student-delete', { method: 'POST', body: { fid: id } }).catch(() => undefined);
     setData((prev) => ({
       ...prev,
       archivedStudents: prev.archivedStudents.filter((s) => s.id !== id),

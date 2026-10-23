@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/table';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScoreEntry, IStudent } from '@/data/types';
+import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { pad2, toISO } from '@/lib/dates';
 import {
@@ -501,7 +502,11 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
             </AlertDialogCancel>
             <AlertDialogAction
               className="bg-destructive text-white hover:bg-destructive/90"
-              onClick={() => {
+              onClick={async () => {
+                // 同步为“只增不删”，删除必须显式调服务器接口，否则刷新后会恢复
+                for (const cid of selectedIds) {
+                  await api('/api/desktop/course-delete', { method: 'POST', body: { fid: cid } }).catch(() => undefined);
+                }
                 setData((prev) => ({
                   ...prev,
                   courses: prev.courses.filter((x) => !selectedIds.includes(x.id)),

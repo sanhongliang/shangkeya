@@ -22,11 +22,11 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent } from '@/components/ui/card';import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScheduleItem, ISummary, IStudent } from '@/data/types';
+import { api } from '@/api/client';
 import { addDays, pad2, startOfWeek, toISO, WEEKDAYS_CN } from '@/lib/dates';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -165,11 +165,13 @@ export default function SchedulePage() {
     }));
   };
 
-  const deleteItem = () => {
+  const deleteItem = async () => {
     if (!selectedCourse) {
       toast.error('请先选择要删除的课程');
       return;
     }
+    // 同步为“只增不删”，删除必须显式调服务器删除接口，否则刷新后会恢复
+    await api('/api/desktop/course-delete', { method: 'POST', body: { fid: selectedCourse.id } }).catch(() => undefined);
     setData((prev) => ({ ...prev, ...removeMatchingTemplate(prev, selectedCourse) }));
     setSelectedItemId(null);
     toast.success('课程已删除');
