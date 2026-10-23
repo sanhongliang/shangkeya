@@ -1,0 +1,70 @@
+name: 打包发布（macOS 仅苹果版）
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-macos-arm:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - name: install frontend dependencies
+        run: npm install
+      - name: build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: '上课鸭 v__VERSION__'
+          releaseBody: 'macOS 安装包：Apple 芯片（M 系列）/ Intel。请下载对应平台版本；未签名，首次打开请右键 → 打开。'
+          releaseDraft: true
+          prerelease: false
+          args: --target aarch64-apple-darwin
+
+  build-macos-intel:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+      - name: install frontend dependencies
+        run: npm install
+      - name: build and release
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: app-v__VERSION__
+          releaseName: '上课鸭 v__VERSION__'
+          releaseBody: 'macOS 安装包：Apple 芯片（M 系列）/ Intel。请下载对应平台版本；未签名，首次打开请右键 → 打开。'
+          releaseDraft: true
+          prerelease: false
+          args: --target x86_64-apple-darwin
