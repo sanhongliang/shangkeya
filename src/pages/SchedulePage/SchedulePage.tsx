@@ -91,7 +91,17 @@ export default function SchedulePage() {
   const weekStart = startOfWeek(selectedDate);
   const weekDates = WEEKDAY_LABELS.map((_, i) => addDays(weekStart, i));
   const items = data.schedule.filter((k) => k.table === activeTable);
-  const selectedCourse = data.courses.find((c) => c.id === selectedItemId) ?? null;
+  // 课表条目 id 是 k 前缀（本地添加），课程 id 是 c 前缀（服务器还原），需兼容匹配
+  const normCourseId = (id: string | null): string | null => {
+    if (!id) return null;
+    if (id.startsWith('k')) return 'c' + id.slice(1);
+    if (/^\d+$/.test(id)) return 'c-' + id;
+    return id;
+  };
+  const selectedCourse =
+    data.courses.find((c) => c.id === selectedItemId) ??
+    data.courses.find((c) => (normCourseId(selectedItemId) ? c.id === normCourseId(selectedItemId) : false)) ??
+    null;
 
   const cells = buildMonthCells(calMonth.getFullYear(), calMonth.getMonth());
   const todayStr = toISO(new Date());
