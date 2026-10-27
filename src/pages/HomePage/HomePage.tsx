@@ -71,10 +71,10 @@ export default function HomePage() {
     const tauriMode = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
     if (tauriMode) {
       void import('@tauri-apps/api/window')
-        .then((m) => m.getCurrentWindow().setTitle('上课鸭 v1.0.9—教学课程管理系统'))
+        .then((m) => m.getCurrentWindow().setTitle('上课鸭—教学课程管理系统'))
         .catch(() => {});
     } else {
-      document.title = '上课鸭 v1.0.9—教学课程管理系统';
+      document.title = '上课鸭—教学课程管理系统';
     }
   }, []);
 
