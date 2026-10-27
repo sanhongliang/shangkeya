@@ -219,11 +219,11 @@ router.get('/stats', requireAdmin, async (req, res) => {
   }
 });
 
-// GET /api/cards/teachers  → 老师列表（admin）：用户名/注册时间/到期时间/剩余天数/状态
+// GET /api/cards/teachers  → 老师列表（admin）：用户名/注册时间/到期时间/剩余天数/状态/启用状态
 router.get('/teachers', requireAdmin, async (req, res) => {
   try {
     const r = await query(
-      `SELECT id, username, name, created_at, expires_at,
+      `SELECT id, username, name, created_at, expires_at, active,
               CASE WHEN expires_at IS NULL THEN NULL
                    ELSE ROUND((EXTRACT(EPOCH FROM (expires_at - now())) / 86400)::numeric, 1)
               END AS days_left
@@ -234,13 +234,60 @@ router.get('/teachers', requireAdmin, async (req, res) => {
     );
     const teachers = r.rows.map((t) => {
       let status = 'normal';
-      if (t.expires_at == null || Number(t.days_left) <= 0) status = 'expired';
+      if (t.active === false) status = 'disabled';
+      else if (t.expires_at == null || Number(t.days_left) <= 0) status = 'expired';
       else if (Number(t.days_left) <= 7) status = 'soon';
       return { ...t, days_left: t.days_left == null ? null : Number(t.days_left), status };
     });
     res.json({ ok: true, teachers });
   } catch (e) {
     err(res, 'DB_ERROR', '查询失败：' + (e?.message ?? e), 500);
+  }
+});
+
+// POST /api/cards/teacher-extend  { id, days }  → 给老师账号增加续期天数（admin）
+router.post('/teacher-extend', requireAdmin, async (req, res) => {
+  const { id, days } = req.body || {};
+  const uid = Number(id);
+  let d = Number(days);
+  if (!Number.isFinite(uid) || uid <= 0) return err(res, 'BAD_ID', '用户ID无效');
+  if (!Number.isFinite(d) || d <= 0 || d > 3650) return err(res, 'BAD_DAYS', '续期天数无效（1-3650）');
+  d = Math.floor(d);
+  if (uid === Number(req.user.uid)) return err(res, 'FORBIDDEN', '不能对管理员自己的账号操作', 403);
+  try {
+    const r = await query(
+      `UPDATE accounts
+       SET expires_at = GREATEST(COALESCE(expires_at, now()), now()) + ($1 || ' days')::interval,
+           updated_at = now()
+       WHERE id = $2 AND role = 'teacher'
+       RETURNING id, username, expires_at`,
+      [d, uid],
+    );
+    if (!r.rows[0]) return err(res, 'NOT_FOUND', '老师账号不存在', 404);
+    res.json({ ok: true, id: uid, days: d, expires_at: r.rows[0].expires_at });
+  } catch (e) {
+    err(res, 'DB_ERROR', '续期失败：' + (e?.message ?? e), 500);
+  }
+});
+
+// POST /api/cards/teacher-active  { id, active }  → 禁用/启用老师账号（admin）
+router.post('/teacher-active', requireAdmin, async (req, res) => {
+  const { id, active } = req.body || {};
+  const uid = Number(id);
+  if (!Number.isFinite(uid) || uid <= 0) return err(res, 'BAD_ID', '用户ID无效');
+  const act = active === true || active === 'true';
+  if (uid === Number(req.user.uid)) return err(res, 'FORBIDDEN', '不能禁用管理员自己的账号', 403);
+  try {
+    const r = await query(
+      `UPDATE accounts SET active = $1, updated_at = now()
+       WHERE id = $2 AND role = 'teacher'
+       RETURNING id, username, active`,
+      [act, uid],
+    );
+    if (!r.rows[0]) return err(res, 'NOT_FOUND', '老师账号不存在', 404);
+    res.json({ ok: true, id: uid, active: r.rows[0].active });
+  } catch (e) {
+    err(res, 'DB_ERROR', '操作失败：' + (e?.message ?? e), 500);
   }
 });
 

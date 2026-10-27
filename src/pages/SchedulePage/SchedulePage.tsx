@@ -27,7 +27,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScheduleItem, ISummary, IStudent } from '@/data/types';
 import { api } from '@/api/client';
-import { loadCloudState, syncCloudState } from '@/api/desktop';
+import { loadCloudState, syncCloudState, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
 import { addDays, pad2, startOfWeek, toISO, WEEKDAYS_CN } from '@/lib/dates';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -43,6 +43,14 @@ const HOUR_START = 0; // 全天 0-24 小时
 const HOUR_COUNT = 24;
 const SLOT_H = 48;
 const GRID_H = HOUR_COUNT * SLOT_H;
+
+/** 排课时间本地化显示：MM-DD HH:mm */
+function fmtCreated(v?: string): string {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
 
 /** 学员课程块配色盘：不同学员显示不同背景色 */
 const COURSE_PALETTE = [
@@ -284,8 +292,12 @@ export default function SchedulePage() {
     setData((prev) => ({ ...prev, courses: nextCourses }));
     setSummaryCourse((prev) => (prev ? { ...prev, summary: withT } : prev));
     toast.success('课堂总结已保存，并记入开课记录');
-    // 立即同步到服务器（不等 800ms 防抖），保证下次打开拉到最新
-    void syncCloudState({ ...data, courses: nextCourses }).catch(() => undefined);
+    // 立即同步到服务器（不等 800ms 防抖），保证下次打开拉到最新；
+    // 成功后标记快照，AppProvider 的 800ms 防抖会跳过这份数据，避免重复推送/重复拉取
+    const snap = snapOfBusiness({ ...data, courses: nextCourses });
+    void syncCloudState({ ...data, courses: nextCourses })
+      .then(() => markLastSyncedSnap(snap))
+      .catch(() => undefined);
   };
 
   const enterClassroom = () => {
@@ -626,6 +638,19 @@ export default function SchedulePage() {
 
         <Card>
           <CardContent className="space-y-2.5 pt-4">
+            {selectedCourse && (
+              <div className="rounded-md border bg-muted/40 px-2 py-1.5 text-xs">
+                <div className="font-medium">
+                  {studentsById[selectedCourse.studentId]?.name ?? '—'} · {selectedCourse.date}{' '}
+                  {selectedCourse.start}（{selectedCourse.durationMin}min）
+                </div>
+                <div className="mt-0.5 text-muted-foreground">
+                  排课：{selectedCourse.ownerName ?? '—'}
+                  {selectedCourse.createdAt ? ` · ${fmtCreated(selectedCourse.createdAt)}` : ''}
+                  {selectedCourse.done ? ' · 已确认完成' : ''}
+                </div>
+              </div>
+            )}
             <Button size="sm" className="w-full" onClick={() => setAddOpen(true)}>
               <Plus className="mr-1 h-4 w-4" />
               添加课程
@@ -634,7 +659,7 @@ export default function SchedulePage() {
               size="sm"
               variant="outline"
               className="w-full"
-              disabled={!selectedCourse}
+              disabled={!selectedCourse || selectedCourse.done}
               onClick={() => setConfirmDeleteOpen(true)}
             >
               <Trash2 className="mr-1 h-4 w-4" />

@@ -4,7 +4,7 @@ import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
 import type { IAppData } from '@/data/types';
 import { buildSeed } from '@/data/seed';
-import { cloudLogin, loadCloudState, syncCloudState } from '@/api/desktop';
+import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
 import { getToken, setToken } from '@/api/client';
 
@@ -38,8 +38,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   const [authUser, setAuthUser] = useState<IAuthUser | null>(() => loadAuth());
   const [cloudReady, setCloudReady] = useState(false); // 云端数据是否已加载（未就绪前不推送，避免覆盖云端）
   const [syncing, setSyncing] = useState(false);
-  const lastSyncRef = useRef<string>(''); // 上次已同步数据快照（JSON）
   const loadedRef = useRef(false); // 是否完成首次云端加载
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+  const syncingRef = useRef(syncing);
+  useEffect(() => { syncingRef.current = syncing; }, [syncing]);
 
   // 启动：若存在 token，恢复会话并加载云端数据
   useEffect(() => {
@@ -87,30 +90,12 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       void (async () => {
         if (syncing) return;
         const payload: IAppData = data;
-        const snap = JSON.stringify({
-          students: payload.students,
-          archivedStudents: payload.archivedStudents,
-          courses: payload.courses,
-          schedule: payload.schedule,
-          recharges: payload.recharges,
-          scores: payload.scores,
-          settings: payload.settings,
-          announcement: payload.announcement,
-        });
-        if (snap === lastSyncRef.current) return; // 无变化
+        const snap = snapOfBusiness(payload);
+        if (getLastSyncedSnap() === snap) return; // 无变化（含“已立即同步”的数据）
         setSyncing(true);
         try {
           await syncCloudState(payload);
-          lastSyncRef.current = JSON.stringify({
-            students: payload.students,
-            archivedStudents: payload.archivedStudents,
-            courses: payload.courses,
-            schedule: payload.schedule,
-            recharges: payload.recharges,
-            scores: payload.scores,
-            settings: payload.settings,
-            announcement: payload.announcement,
-          });
+          markLastSyncedSnap(snap);
         } catch (e) {
           console.error('[cloud sync] 保存失败：', e);
         } finally {
@@ -196,6 +181,52 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       return false;
     }
   }, []);
+
+  // 登录后：每 60 秒 + 窗口重新聚焦时自动刷新云端。
+  // 校长端解除师生关系/新增学员/新排课等学校侧变更，老师端无需重启即可联动（如解除后学员移入历史学员）
+  useEffect(() => {
+    if (!authUser) return;
+    let stop = false;
+    const doAutoRefresh = async () => {
+      try {
+        // 先推送本地变更（如删除课程/修改信息），再拉云端覆盖——
+        // 避免"本地删除尚未上传就被云端旧数据覆盖"导致删除的课程刷新后复活
+        if (!syncingRef.current) {
+          const payload = dataRef.current;
+          const snap = snapOfBusiness(payload);
+          if (getLastSyncedSnap() !== snap) {
+            await syncCloudState(payload);
+            markLastSyncedSnap(snap);
+          }
+        }
+        const cloud = await loadCloudState();
+        if (stop) return;
+        setDataState((prev) => {
+          const merged: IAppData = {
+            ...prev,
+            students: cloud.students ?? prev.students,
+            archivedStudents: cloud.archivedStudents ?? prev.archivedStudents,
+            courses: cloud.courses ?? prev.courses,
+            schedule: cloud.schedule ?? prev.schedule,
+            recharges: cloud.recharges ?? prev.recharges,
+            scores: cloud.scores ?? prev.scores,
+            settings: { ...prev.settings, ...(cloud.settings ?? {}) },
+            announcement: cloud.announcement ?? prev.announcement,
+          };
+          return merged;
+        });
+      } catch {
+        /* 网络抖动忽略，下次轮询再试 */
+      }
+    };
+    const timer = setInterval(doAutoRefresh, 60000);
+    window.addEventListener('focus', doAutoRefresh);
+    return () => {
+      stop = true;
+      clearInterval(timer);
+      window.removeEventListener('focus', doAutoRefresh);
+    };
+  }, [authUser]);
 
   return (
     <AppDataContext.Provider value={{ data, setData, authUser, login, register, logout, refresh }}>

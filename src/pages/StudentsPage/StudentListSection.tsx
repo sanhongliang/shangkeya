@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import type { IStudent } from '@/data/types';
 import { cn } from '@/lib/utils';
+import { studentBoardColor } from '@/lib/studentColor';
 
 export type StudentListMode = 'current' | 'archived';
 
@@ -44,7 +45,10 @@ export default function StudentListSection({
   const [keyword, setKeyword] = useState('');
   const kw = keyword.trim();
   const filtered = kw ? students.filter((s) => s.name.includes(kw)) : students;
-  const selectedName = students.find((s) => s.id === selectedId)?.name ?? '';
+  const selectedStudent = students.find((s) => s.id === selectedId);
+  const selectedName = selectedStudent?.name ?? '';
+  // 学校学员（学校分配）老师端不能删除
+  const selectedIsSchool = !!selectedStudent && (!!selectedStudent._shared || !!selectedStudent._schoolStudent);
 
   return (
     <div className="flex h-full max-h-[calc(100vh-96px)] w-60 shrink-0 flex-col rounded-xl border bg-card shadow-sm">
@@ -112,7 +116,7 @@ export default function StudentListSection({
             >
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold text-white shadow-sm"
-                style={{ backgroundColor: s.boardColor }}
+                style={{ backgroundColor: s.boardColor || studentBoardColor(s.id) }}
               >
                 {s.name.charAt(0)}
               </span>
@@ -153,7 +157,8 @@ export default function StudentListSection({
                   variant="destructive"
                   size="sm"
                   className="h-8 min-w-0 gap-1 whitespace-nowrap px-1.5 text-xs"
-                  disabled={!selectedId}
+                  disabled={!selectedId || selectedIsSchool}
+                  title={selectedIsSchool ? '学校学员不能删除' : undefined}
                 >
                   <Trash2 className="h-3.5 w-3.5 shrink-0" />
                   删除学员
@@ -193,7 +198,8 @@ export default function StudentListSection({
                   variant="destructive"
                   size="sm"
                   className="h-8 min-w-0 gap-1 whitespace-nowrap px-1.5 text-xs"
-                  disabled={!selectedId}
+                  disabled={!selectedId || selectedIsSchool}
+                  title={selectedIsSchool ? '学校学员不能删除' : undefined}
                 >
                   <Trash2 className="h-3.5 w-3.5 shrink-0" />
                   彻底删除

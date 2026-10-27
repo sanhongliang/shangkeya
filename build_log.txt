@@ -1,0 +1,76 @@
+﻿
+> miaoda-react-standard-webapp-app@0.1.0 tauri
+> tauri build
+
+node.exe :         Info Looking up installed tauri packages to check mismatched versions...
+所在位置 行:1 字符: 1
++ & "C:\Users\Administrator\AppData\Local\Doubao\User Data\sandbox_runt ...
++ ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (        Info Lo...hed versions...:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+     Running beforeBuildCommand `npm run build:desktop`
+
+> miaoda-react-standard-webapp-app@0.1.0 build:desktop
+> node scripts/desktop-build.js
+
+[36mvite v8.2.2 [32mbuilding client environment for production...[36m[39m
+transforming...
+✓ 2563 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/client/index.html                              0.44 kB │ gzip:   0.27 kB
+dist/client/assets/pdf.worker.min-CjEcRF4W.mjs  1,264.34 kB
+dist/client/assets/index-CqE8bgpR.css             143.52 kB │ gzip:  21.69 kB
+dist/client/assets/dist-js-CSDWGbuQ.js              0.16 kB │ gzip:   0.16 kB
+dist/client/assets/core-CTt0YZSn.js                 2.25 kB │ gzip:   1.11 kB
+dist/client/assets/webviewWindow-CH1b7w4r.js        4.77 kB │ gzip:   1.40 kB
+dist/client/assets/index-BuGZU2Aj.js            2,338.95 kB │ gzip: 728.96 kB
+
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/@tauri-apps/api/event.js is dynamically imported by src/pages/ClassroomP
+age/ClassroomPage.tsx but also statically imported by node_modules/@tauri-apps/api/webview.js, node_modules/@tauri-apps
+/api/webviewWindow.js, node_modules/@tauri-apps/api/window.js, src/pages/AddCoursewarePopup/AddCoursewarePopup.tsx, src
+/pages/AnswerWindowPage/AnswerWindowPage.tsx, ..., dynamic import will not move module into another chunk.
+[39m
+[33m[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeS
+plitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.[39m
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/@tauri-apps/api/dpi.js is dynamically imported by src/app.tsx, src/pages
+/BlackboardCanvasPage/BlackboardCanvasPage.tsx but also statically imported by node_modules/@tauri-apps/api/webview.js,
+ node_modules/@tauri-apps/api/window.js, dynamic import will not move module into another chunk.
+[39m
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/@tauri-apps/api/window.js is dynamically imported by src/app.tsx, src/pa
+ges/AddCoursewarePopup/AddCoursewarePopup.tsx, src/pages/BlackboardCanvasPage/BlackboardCanvasPage.tsx, src/pages/Class
+roomPage/ClassroomPage.tsx, src/pages/HomePage/HomePage.tsx but also statically imported by node_modules/@tauri-apps/ap
+i/webview.js, node_modules/@tauri-apps/api/webviewWindow.js, src/pages/AnswerWindowPage/AnswerWindowPage.tsx, src/pages
+/RemarkWindowPage/RemarkWindowPage.tsx, dynamic import will not move module into another chunk.
+[39m
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/@tauri-apps/api/path.js is dynamically imported by src/api/backup.ts, sr
+c/pages/ClassroomPage/ClassroomPage.tsx but also statically imported by node_modules/@tauri-apps/plugin-fs/dist-js/inde
+x.js, src/pages/AnswerWindowPage/AnswerWindowPage.tsx, src/pages/RemarkWindowPage/RemarkWindowPage.tsx, dynamic import 
+will not move module into another chunk.
+[39m
+[33m[INEFFECTIVE_DYNAMIC_IMPORT] node_modules/@tauri-apps/plugin-fs/dist-js/index.js is dynamically imported by src/ap
+i/backup.ts, src/pages/ClassroomPage/ClassroomPage.tsx but also statically imported by src/pages/AnswerWindowPage/Answe
+rWindowPage.tsx, src/pages/RemarkWindowPage/RemarkWindowPage.tsx, dynamic import will not move module into another chun
+k.
+[39m
+[32m✓ built in 28.35s[39m
+[33m[PLUGIN_TIMINGS] Your build spent 95% of 28.3s inside plugin hooks (27.0s).
+Measured inside the callback, so queue time is excluded and time the callback itself awaited is not:
+  - @tailwindcss/vite:generate:build transform (92%, 26.2s, 1 call)
+See https://rolldown.rs/reference/InputOptions.checks#plugintimings for more details.
+[39m
+desktop build done
+   Compiling shangkeya v1.0.0 (E:\上课鸭豆包\shangkeya\src-tauri)
+    Finished `release` profile [optimized] target(s) in 3m 30s
+       Built application at: E:\上课鸭豆包\shangkeya\src-tauri\target\release\shangkeya.exe
+        Info Patching E:\上课鸭豆包\shangkeya\src-tauri\target\release\shangkeya.exe with bundle type information: nsis
+        Info Target: x64
+     Running makensis to produce E:\上课鸭豆包\shangkeya\src-tauri\target\release\bundle\nsis\上课鸭_1.0.9_x64-setup.exe
+    Finished 1 bundle at:
+        E:\上课鸭豆包\shangkeya\src-tauri\target\release\bundle\nsis\上课鸭_1.0.9_x64-setup.exe (3.20 MiB)
+

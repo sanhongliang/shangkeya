@@ -9,6 +9,7 @@ import coursesRoutes from './routes/courses.js';
 import scheduleRoutes from './routes/schedule.js';
 import rechargesRoutes from './routes/recharges.js';
 import cardsRoutes, { redeemHandler } from './routes/cards.js';
+import principalRoutes from './routes/principal.js';
 import miscRoutes from './routes/misc.js';
 import desktopRoutes from './routes/desktop.js';
 import { requireAuth } from './auth.js';
@@ -31,6 +32,7 @@ app.use('/api/courses', requireAuth, coursesRoutes);
 app.use('/api/schedule', requireAuth, scheduleRoutes);
 app.use('/api/recharges', requireAuth, rechargesRoutes);
 app.use('/api/cards', requireAuth, cardsRoutes);
+app.use('/api', requireAuth, principalRoutes); // /schools（admin）/principal/*（校长+申请）
 app.use('/api/desktop', requireAuth, desktopRoutes);
 app.use('/api', requireAuth, miscRoutes); // scores / announcements / settings
 

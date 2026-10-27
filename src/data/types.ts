@@ -15,6 +15,8 @@ export interface IStudent {
   usedHours: number; // 已上课时
   remainingHours: number; // 剩余课时
   note: string; // 备注
+  _shared?: boolean; // 学校共享学员标记（后端返回）
+  _schoolStudent?: boolean; // 学校来源学员（后端返回，老师端不能删除）
 }
 
 export interface ISummary {
@@ -36,6 +38,11 @@ export interface ICourse {
   remark: string; // 备注
   done: boolean; // 完成
   prep: boolean; // 备课
+  /** 排课人：校长=1 显示"校长"，老师为老师名（学校排课/老师自建均带） */
+  ownerId?: number | null;
+  ownerName?: string;
+  /** 排课时间（YYYY-MM-DD HH:mm，服务端 created_at） */
+  createdAt?: string;
   summary?: ISummary; // 课堂总结
   /** 本节课使用的课件/图片等文件（含本机路径；随 courses 同步到云端，换机可恢复目录） */
   files?: ICourseNode[];

@@ -30,6 +30,14 @@ import type { ICourse, IScoreEntry, IStudent } from '@/data/types';
 import { api } from '@/api/client';
 import { cn } from '@/lib/utils';
 import { pad2, toISO } from '@/lib/dates';
+
+/** 排课时间本地化显示：MM-DD HH:mm */
+function fmtCreated(v?: string): string {
+  if (!v) return '';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${pad2(d.getMonth() + 1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+}
 import {
   AddScheduleDialog,
   type AddScheduleValues,
@@ -216,9 +224,14 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                     {deleteMode && (
                       <TableHead className="w-12 whitespace-nowrap">
                         <Checkbox
-                          checked={selectedIds.length === courses.length && courses.length > 0}
+                          checked={
+                            selectedIds.length === courses.filter((x) => !x.done).length &&
+                            courses.some((x) => !x.done)
+                          }
                           onCheckedChange={(v) =>
-                            setSelectedIds(v ? courses.map((c) => c.id) : [])
+                            setSelectedIds(
+                              v ? courses.filter((x) => !x.done).map((c) => c.id) : [],
+                            )
                           }
                           aria-label="全选"
                         />
@@ -240,11 +253,11 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                       <TableRow
                         key={c.id}
                         className={cn(
-                          deleteMode && isSelected && 'bg-primary/5',
-                          deleteMode && 'cursor-pointer',
+                          deleteMode && !c.done && isSelected && 'bg-primary/5',
+                          deleteMode && !c.done && 'cursor-pointer',
                         )}
                         onClick={() => {
-                          if (!deleteMode) return;
+                          if (!deleteMode || c.done) return;
                           setSelectedIds((prev) =>
                             isSelected ? prev.filter((x) => x !== c.id) : [...prev, c.id],
                           );
@@ -253,6 +266,12 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                         <TableCell className="whitespace-nowrap text-muted-foreground">{idx + 1}</TableCell>
                         <TableCell className="whitespace-nowrap">
                           {c.date} {c.start}（{c.durationMin}min）
+                          {c.ownerName ? (
+                            <span className="ml-1 text-xs text-muted-foreground">
+                              · {c.ownerName}排
+                              {c.createdAt ? ` ${fmtCreated(c.createdAt)}` : ''}
+                            </span>
+                          ) : null}
                         </TableCell>
                         <TableCell>
                           <span className="block max-w-[240px] truncate">{c.content}</span>
@@ -279,11 +298,13 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                           <TableCell className="whitespace-nowrap">
                             <Checkbox
                               checked={isSelected}
-                              onCheckedChange={(v) =>
+                              disabled={c.done}
+                              onCheckedChange={(v) => {
+                                if (c.done) return;
                                 setSelectedIds((prev) =>
                                   v ? [...prev, c.id] : prev.filter((x) => x !== c.id),
-                                )
-                              }
+                                );
+                              }}
                               onClick={(e) => e.stopPropagation()}
                               aria-label="选择"
                             />
@@ -489,6 +510,7 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
             <AlertDialogTitle>确认删除</AlertDialogTitle>
             <AlertDialogDescription>
               确定删除选中的 {selectedIds.length} 条开课记录吗？删除后不可恢复。
+              已确认完成的课程不可删除。
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

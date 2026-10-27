@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import type { IStudent } from '@/data/types';
 import { cn } from '@/lib/utils';
+import { studentBoardColor } from '@/lib/studentColor';
 
 export interface StudentInfoSectionProps {
   student: IStudent | null;
@@ -103,7 +104,7 @@ export default function StudentInfoSection({
         <div className="flex items-center gap-3">
           <span
             className="flex h-12 w-12 shrink-0 translate-y-0.5 items-center justify-center rounded-full text-base font-bold text-white shadow-sm"
-            style={{ backgroundColor: display.boardColor }}
+            style={{ backgroundColor: display.boardColor || studentBoardColor(display.id) }}
           >
             {display.name.charAt(0)}
           </span>
@@ -340,7 +341,13 @@ export default function StudentInfoSection({
             </Button>
             <AlertDialog>
               <AlertDialogTrigger asChild>
-                <Button variant="destructive" size="sm" className="gap-1">
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="gap-1"
+                  disabled={!!(student._shared || student._schoolStudent)}
+                  title={(student._shared || student._schoolStudent) ? '学校学员不能删除' : undefined}
+                >
                   <Trash2 className="mr-1 h-4 w-4" />
                   彻底删除学员
                 </Button>

@@ -101,12 +101,23 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// DELETE /api/schedule/:id
+// DELETE /api/schedule/:id（已完成课程不可删除）
 router.delete('/:id', async (req, res) => {
   const id = Number(req.params.id);
   try {
-    const r = await query('DELETE FROM schedule WHERE id = $1 AND org_id = $2 AND owner_id = $3', [id, req.user.org_id ?? 1, req.user.uid]);
-    if (!r.rowCount) return err(res, 'NOT_FOUND', '课次不存在', 404);
+    const r = await query(
+      `DELETE FROM schedule WHERE id = $1 AND org_id = $2 AND owner_id = $3
+       AND NOT (status = 'done' OR payload->>'done' = 'true')`,
+      [id, req.user.org_id ?? 1, req.user.uid],
+    );
+    if (!r.rowCount) {
+      // 区分：不存在 vs 已完成
+      const chk = await query('SELECT status FROM schedule WHERE id = $1 AND org_id = $2 AND owner_id = $3', [id, req.user.org_id ?? 1, req.user.uid]);
+      if (chk.rows[0] && (chk.rows[0].status === 'done' || chk.rows[0].payload?.done)) {
+        return err(res, 'FORBIDDEN', '已完成课程不能删除', 403);
+      }
+      return err(res, 'NOT_FOUND', '课次不存在', 404);
+    }
     res.json({ ok: true });
   } catch (e) {
     err(res, 'DB_ERROR', '删除课次失败：' + (e?.message ?? e), 500);

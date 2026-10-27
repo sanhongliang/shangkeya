@@ -96,6 +96,27 @@ export async function loadCloudState(): Promise<Partial<IAppData>> {
   return r.data;
 }
 
+// 最近一次已成功同步到服务器的业务快照（module 级共享）：
+// 页面里“保存后立即同步”（如保存课堂总结）成功后标记该快照，
+// AppProvider 的 800ms 防抖推送读到同一快照时会跳过，避免同一份数据被重复推送、
+// 以及 syncCloudState 内部重复拉取云端 state（含学生列表数据）。
+let lastSyncedSnap = '';
+export function getLastSyncedSnap(): string { return lastSyncedSnap; }
+export function markLastSyncedSnap(snap: string): void { lastSyncedSnap = snap; }
+/** 业务数据快照串（判断数据是否有变化；与 syncCloudState 上传的字段一致） */
+export function snapOfBusiness(payload: IAppData): string {
+  return JSON.stringify({
+    students: payload.students,
+    archivedStudents: payload.archivedStudents,
+    courses: payload.courses,
+    schedule: payload.schedule,
+    recharges: payload.recharges,
+    scores: payload.scores,
+    settings: payload.settings,
+    announcement: payload.announcement,
+  });
+}
+
 /** 课次合并：本地 courses 与云端课次（手机端可能改动）合并
  *  - 云端有、本地无 → 并入本地（手机端新建的课次保留）
  *  - 本地有、云端无 → 保留本地（随 sync 上传）
