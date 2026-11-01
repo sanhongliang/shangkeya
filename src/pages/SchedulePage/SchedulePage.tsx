@@ -144,6 +144,11 @@ export default function SchedulePage() {
   };
 
   const addItems = (values: AddScheduleValues) => {
+    const stu = data.students.find((s) => s.id === values.studentId);
+    if (stu && (stu._shared || stu._schoolStudent)) {
+      toast.error('学校学员由校长排课，老师不能排课');
+      return;
+    }
     const start = new Date(`${values.startDate}T00:00:00`);
     const generated: IScheduleItem[] = [];
     const generatedCourses: ICourse[] = [];
@@ -669,7 +674,8 @@ export default function SchedulePage() {
               size="sm"
               variant="outline"
               className="w-full"
-              disabled={!selectedCourse}
+              disabled={!selectedCourse || selectedCourse.ownerId === 1}
+              title={selectedCourse?.ownerId === 1 ? '学校排的课由校长管理，老师不能修改' : undefined}
               onClick={() => setEditOpen(true)}
             >
               <Pencil className="mr-1 h-4 w-4" />

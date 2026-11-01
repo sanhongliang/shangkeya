@@ -300,13 +300,24 @@ router.put('/sync', async (req, res) => {
       }
       const stuRows = (await client.query('SELECT id, payload FROM students WHERE org_id = $1 AND owner_id = $2', [org, uid])).rows;
       const sidMap = {};
-      for (const r of stuRows) { if (r.payload?._fid) sidMap[r.payload._fid] = r.id; }
+      const schoolStudentFids = new Set(); // 学校学员（校长端分配/创建的学员）：老师不能排课
+      for (const r of stuRows) {
+        const p = r.payload ?? {};
+        const isSchoolStu = p.student?._schoolStudent === true || p.student?._shared === true;
+        if (isSchoolStu) {
+          if (p._fid) schoolStudentFids.add(p._fid);
+          if (p.student?.id) schoolStudentFids.add(p.student.id);
+        }
+        if (r.payload?._fid) sidMap[r.payload._fid] = r.id;
+      }
       const seenCid = new Set();
       for (const c of b.courses ?? []) {
         const row = courseToRow(c, sidMap);
         if (!row.student_id) continue;
         // 学校排的课（teacher_id 指向本老师）不落副本；前端同 fid 重复只写一份
         if (schoolCourseFids.has(c.id) || schoolCourseFids.has(row.payload._fid)) continue;
+        // 规则：学校学员的课老师不能排——老师自建课关联学校学员一律跳过（不入库，前端添加弹窗已禁用）
+        if (schoolStudentFids.has(c.studentId)) continue;
         // 已完成课保留原行，不重插（防止同一课出现两份）
         if (doneFids.has(c.id)) continue;
         if (seenCid.has(c.id)) continue;

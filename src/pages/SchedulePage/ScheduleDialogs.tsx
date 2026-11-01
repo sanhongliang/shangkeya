@@ -199,8 +199,9 @@ export function AddScheduleDialog({
                   onChange={(e) => setStudentId(e.target.value)}
                 >
                   {students.map((s) => (
-                    <option key={s.id} value={s.id}>
+                    <option key={s.id} value={s.id} disabled={!!(s._shared || s._schoolStudent)}>
                       {s.name}
+                      {(s._shared || s._schoolStudent) ? '（学校学员·校长排课）' : ''}
                     </option>
                   ))}
                 </select>
@@ -631,8 +632,9 @@ export function EditScheduleDialog({ open, onOpenChange, students, courses, item
                 onChange={(e) => setStudentId(e.target.value)}
               >
                 {students.map((s) => (
-                  <option key={s.id} value={s.id}>
+                  <option key={s.id} value={s.id} disabled={!!(s._shared || s._schoolStudent)}>
                     {s.name}
+                    {(s._shared || s._schoolStudent) ? '（学校学员·校长排课）' : ''}
                   </option>
                 ))}
               </select>

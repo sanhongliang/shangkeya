@@ -198,7 +198,7 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                   退出
                 </Button>
               )}
-              <Button size="sm" variant="outline" onClick={() => setAddCourseOpen(true)}>
+              <Button size="sm" variant="outline" disabled={!!(student._shared || student._schoolStudent)} title={(student._shared || student._schoolStudent) ? '学校学员由校长排课' : undefined} onClick={() => setAddCourseOpen(true)}>
                 <Plus className="mr-1 h-4 w-4" />
                 添加课程
               </Button>
@@ -206,6 +206,8 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                 size="sm"
                 variant="outline"
                 className="ml-auto"
+                disabled={!!(student._shared || student._schoolStudent)}
+                title={(student._shared || student._schoolStudent) ? '学校学员由校长排课' : undefined}
                 onClick={() => setMonthOpen(true)}
               >
                 <CalendarRange className="mr-1 h-4 w-4" />

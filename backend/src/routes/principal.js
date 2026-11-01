@@ -719,35 +719,15 @@ router.put('/principal/schedule/:id', requirePrincipal, async (req, res) => {
 });
 
 // DELETE /api/principal/schedule/batch { ids: [] } → 批量删除课程（已完成课不可删除，跳过并返回 skipped）
+// 排课规则：校长能排不能删——校长端删除课程一律拒绝（课程删除仅由老师端执行）
 router.delete('/principal/schedule/batch', requirePrincipal, async (req, res) => {
-  const raw = (req.body && req.body.ids) || req.query.ids || '';
-  const ids = String(raw).split(',').map((x) => Number(String(x).trim())).filter((x) => Number.isFinite(x) && x > 0);
-  if (!ids.length) return err(res, 'BAD_IDS', '请选择要删除的课程');
-  try {
-    const r = await query(
-      `DELETE FROM schedule WHERE org_id = $1 AND id = ANY($2::int[])
-       AND NOT (status = 'done' OR payload->>'done' = 'true') RETURNING id`,
-      [req.orgId, ids],
-    );
-    res.json({ ok: true, deleted: r.rows.length, skipped: ids.length - r.rows.length });
-  } catch (e) {
-    err(res, 'DB_ERROR', '删除失败：' + (e?.message ?? e), 500);
-  }
+  return err(res, 'FORBIDDEN', '校长不能删除课程（课程由老师端删除）', 403);
 });
 
 // DELETE /api/principal/schedule/:id（已完成课不可删除）
+// 排课规则：校长能排不能删——校长端删除课程一律拒绝（课程删除仅由老师端执行）
 router.delete('/principal/schedule/:id', requirePrincipal, async (req, res) => {
-  try {
-    const r = await query(
-      `DELETE FROM schedule WHERE id = $1 AND org_id = $2
-       AND NOT (status = 'done' OR payload->>'done' = 'true') RETURNING id`,
-      [Number(req.params.id), req.orgId],
-    );
-    if (!r.rows[0]) return err(res, 'FORBIDDEN', '课不存在或已完成课程不能删除', 403);
-    res.json({ ok: true });
-  } catch (e) {
-    err(res, 'DB_ERROR', '删除失败：' + (e?.message ?? e), 500);
-  }
+  return err(res, 'FORBIDDEN', '校长不能删除课程（课程由老师端删除）', 403);
 });
 
 // ---------------- 统计 ----------------
