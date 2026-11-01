@@ -3,16 +3,17 @@ import { toast } from 'sonner';
 import { useAppData } from '@/data/app-store';
 import type { IAppData, IStudent } from '@/data/types';
 import { api } from '@/api/client';
+import { STUDENT_BOARD_COLORS } from '@/lib/studentColor';
 import RecordsSection from './RecordsSection';
 import StudentInfoSection from './StudentInfoSection';
 import StudentListSection from './StudentListSection';
 
-function emptyStudent(name: string): IStudent {
+function emptyStudent(name: string, colorIdx: number): IStudent {
   return {
     id: `s${Date.now()}`,
     name,
     gender: '男',
-    boardColor: '#1677ff',
+    boardColor: STUDENT_BOARD_COLORS[colorIdx % STUDENT_BOARD_COLORS.length],
     grade: '高一',
     textbook: '通用版',
     other: '',
@@ -24,6 +25,16 @@ function emptyStudent(name: string): IStudent {
     remainingHours: 0,
     note: '',
   };
+}
+
+/** 学员列表排序：按添加时间倒序（新添加的在前）；本地新加尚未同步（无 created_at）的排最前 */
+function sortByCreatedDesc(a: IStudent, b: IStudent): number {
+  const ta = a.created_at || '';
+  const tb = b.created_at || '';
+  if (!ta && !tb) return 0;
+  if (!ta) return -1;
+  if (!tb) return 1;
+  return ta < tb ? 1 : ta > tb ? -1 : 0;
 }
 
 /** 由充值记录 / 开课记录动态计算学员课时统计 */
@@ -50,7 +61,7 @@ export default function StudentsPage() {
   const [mode, setMode] = useState<'current' | 'archived'>('current');
   const [selectedId, setSelectedId] = useState<string | null>(data.students[0]?.id ?? null);
 
-  const list = mode === 'current' ? data.students : data.archivedStudents;
+  const list = [...(mode === 'current' ? data.students : data.archivedStudents)].sort(sortByCreatedDesc);
   const selected = list.find((s) => s.id === selectedId) ?? null;
 
   const handleSave = (student: IStudent) => {
@@ -72,7 +83,7 @@ export default function StudentsPage() {
       recharges: prev.recharges.filter((r) => r.studentId !== id),
       scores: Object.fromEntries(Object.entries(prev.scores).filter(([k]) => k !== id)),
     }));
-    setSelectedId((prevId) => (prevId === id ? data.students[0]?.id ?? null : prevId));
+    setSelectedId((prevId) => (prevId === id ? list[0]?.id ?? null : prevId));
     toast.success(`学员「${target.name}」已移入历史学员`);
   };
 
@@ -105,7 +116,7 @@ export default function StudentsPage() {
 
   const handleAdd = () => {
     const name = `新学员${data.students.length + 1}`;
-    const student = emptyStudent(name);
+    const student = emptyStudent(name, data.students.length);
     setData((prev) => ({ ...prev, students: [...prev.students, student] }));
     setSelectedId(student.id);
     toast.success('已添加新学员，请完善信息');
@@ -113,7 +124,7 @@ export default function StudentsPage() {
 
   const switchMode = (m: 'current' | 'archived') => {
     setMode(m);
-    const nextList = m === 'current' ? data.students : data.archivedStudents;
+    const nextList = [...(m === 'current' ? data.students : data.archivedStudents)].sort(sortByCreatedDesc);
     setSelectedId(nextList[0]?.id ?? null);
   };
 

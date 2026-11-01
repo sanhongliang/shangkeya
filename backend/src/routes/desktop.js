@@ -94,7 +94,7 @@ router.get('/state', async (req, res) => {
         grade: row.grade ?? '',
         note: row.notes ?? '',
       };
-      const s = { ...orig, name: orig.name ?? row.name };
+      const s = { ...orig, name: orig.name ?? row.name, created_at: row.created_at };
       if (!s.boardColor) s.boardColor = boardColorOf(s.id ?? p._fid ?? `stu-${row.id}`);
       const isSelf = Number(row.owner_id) === Number(uid);
       const key = s.id ?? p._fid ?? `stu-${row.id}`;
@@ -131,7 +131,7 @@ router.get('/state', async (req, res) => {
         grade: row.grade ?? '',
         note: row.notes ?? '',
       };
-      const s = { ...orig, name: orig.name ?? row.name };
+      const s = { ...orig, name: orig.name ?? row.name, created_at: row.created_at };
       if (!s.boardColor) s.boardColor = boardColorOf(s.id ?? p._fid ?? `stu-${row.id}`);
       s._shared = true;
       s._schoolStudent = true;

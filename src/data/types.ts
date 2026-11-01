@@ -15,6 +15,8 @@ export interface IStudent {
   usedHours: number; // 已上课时
   remainingHours: number; // 剩余课时
   note: string; // 备注
+  /** 添加时间（服务端 created_at，ISO 字符串；本地新加未同步时为空） */
+  created_at?: string;
   _shared?: boolean; // 学校共享学员标记（后端返回）
   _schoolStudent?: boolean; // 学校来源学员（后端返回，老师端不能删除）
 }
