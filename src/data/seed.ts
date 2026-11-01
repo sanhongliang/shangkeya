@@ -264,15 +264,15 @@ function buildCourseware(): Record<string, ICourseNode[]> {
 
 export function buildSeed(): IAppData {
   return {
-    students: buildStudents(),
+    students: [],
     archivedStudents: [],
-    courses: buildCourses(),
-    recharges: buildRecharges(),
-    schedule: buildSchedule(),
-    scores: buildScores(),
+    courses: [],
+    recharges: [],
+    schedule: [],
+    scores: {},
     settings: { ...DEFAULT_SETTINGS },
-    announcement: { title: '公告', content: '欢迎使用', expireAt: '2032-11-24 10:20:52' },
-    courseware: buildCourseware(),
-    accounts: [{ username: 'teacher', password: '123456', name: '姚老师' }],
+    announcement: { title: '', content: '', expireAt: '' },
+    courseware: {},
+    accounts: [],
   };
 }

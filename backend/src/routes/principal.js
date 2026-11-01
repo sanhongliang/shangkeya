@@ -763,7 +763,7 @@ router.get('/principal/statistics', requirePrincipal, async (req, res) => {
     // 老师薪资：课时小时 × 时薪
     const schCond = timeCond('s.start_at');
     const salarySql = `
-      SELECT a.id, a.username, m.hourly_rate,
+      SELECT a.id, a.username, m.name, m.hourly_rate,
              COUNT(s.id) AS lessons,
              COALESCE(SUM(EXTRACT(EPOCH FROM (s.end_at - s.start_at)) / 3600), 0) AS hours,
              COALESCE(SUM(EXTRACT(EPOCH FROM (s.end_at - s.start_at)) / 3600 * m.hourly_rate), 0) AS salary
@@ -771,7 +771,7 @@ router.get('/principal/statistics', requirePrincipal, async (req, res) => {
       JOIN accounts a ON a.id = m.account_id
       LEFT JOIN schedule s ON s.teacher_id = a.id AND s.org_id = $1 ${schCond ? `AND (${schCond})` : ''}
       WHERE m.school_id = $2 AND m.status = 'approved'
-      GROUP BY a.id, a.username, m.hourly_rate ORDER BY salary DESC`;
+      GROUP BY a.id, a.username, m.name, m.hourly_rate ORDER BY salary DESC`;
     const teachersR = await query(salarySql, [req.orgId, req.schoolId]);
 
     const students = studentsR.rows.map((x) => ({ ...x, recharged: Number(x.recharged), consumed: Number(x.consumed), hours: Number(x.hours), balance: Number(x.balance) }));
