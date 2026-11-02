@@ -112,7 +112,11 @@ router.get('/state', async (req, res) => {
         if (isSchoolStudent) s._schoolStudent = true;
       }
       // 学校关系状态决定归属；非学校学员按数据库 active 字段
-      const effActive = isSchoolStudent ? true : isRemovedSchool ? false : row.active;
+      // 老师主动恢复（_restoredByTeacher，且记录为本人创建）→ 归当前学员，即使该 fid 曾为学校学员且已解除
+      let effActive = isSchoolStudent ? true : isRemovedSchool ? false : row.active;
+      if (isRemovedSchool && s._restoredByTeacher === true && Number(row.owner_id) === Number(uid)) {
+        effActive = true;
+      }
       const prev = seenStudents.get(key);
       if (!prev) {
         seenStudents.set(key, { s, isSelf, active: effActive });
@@ -225,6 +229,35 @@ function findStudentByRow(rows, backendId) {
   return row ? (row.payload?._fid ?? `stu-${row.id}`) : null;
 }
 
+/**
+ * 学员按 fid 逐条 upsert（防服务器数据被本地全量覆盖删除）：
+ * - 匹配键：payload->>'_fid' 或 payload->'student'->>'id'；前端历史学员 fid 前缀 arc- 时去掉前缀匹配（保留原行翻转 active）
+ * - 已存在 → UPDATE（保留服务器行）；不存在 → INSERT
+ */
+async function upsertStudentRow(client, org, uid, s, active) {
+  let fid = s.id;
+  const matchFid = fid?.startsWith('arc-') ? fid.slice(4) : fid;
+  const find = await client.query(
+    `SELECT id FROM students WHERE org_id = $1 AND owner_id = $2
+     AND (payload->>'_fid' = $3 OR payload->'student'->>'id' = $3)`,
+    [org, uid, matchFid],
+  );
+  const payload = JSON.stringify(studentToRow(s).payload);
+  if (find.rows.length) {
+    await client.query(
+      `UPDATE students SET name = $3, grade = $4, notes = $5, payload = $6, active = $7, updated_at = now()
+       WHERE id = $1 AND org_id = $2`,
+      [find.rows[0].id, org, s.name ?? '', s.grade ?? null, s.note ?? s.notes ?? null, payload, active],
+    );
+  } else {
+    await client.query(
+      `INSERT INTO students (org_id, owner_id, name, grade, notes, payload, active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+      [org, uid, s.name ?? '', s.grade ?? null, s.note ?? s.notes ?? null, payload, active],
+    );
+  }
+}
+
 // PUT /api/desktop/sync → 事务全量替换（body: { students, archivedStudents, courses, schedule, recharges, scores, settings, announcement }）
 router.put('/sync', async (req, res) => {
   const org = req.user.org_id ?? 1;
@@ -232,8 +265,8 @@ router.put('/sync', async (req, res) => {
   const b = req.body ?? {};
   try {
     await withTx(async (client) => {
-      // 学员（active / archived）——仅当前账号；按前端 fid 去重（防缓存残留重复再入库）
-      await client.query('DELETE FROM students WHERE org_id = $1 AND owner_id = $2', [org, uid]);
+      // 学员（active / archived）——按 fid 逐条 upsert（不再 DELETE 全表：
+      // 服务器数据不允许被本地全量覆盖删除；删除/移历史由前端单条接口 student-delete / student-archive 负责）
       // 学校关联分配给该老师的学生（_shared）也写入老师名下副本：
       // 教师端数据与学校端数据彼此独立——老师对共享学员的修改保存在自己的副本里，不触碰学校原始行（owner 非本账号）
       // 学校已解除关系的学员 fid 集合：即使老师端本地仍标记为当前学员，也强制写为历史（active=false，防止解除后又被 sync 拉回当前）
@@ -256,14 +289,11 @@ router.put('/sync', async (req, res) => {
         // 学校共享来源标记保留在副本上（前端据此禁止删除学校学员）
         if (s._shared) s._schoolStudent = true;
         seenSid.add(s.id);
-        // 已解除关系的学校学员强制写为历史学员（active=false）
+        // 已解除关系的学校学员强制写为历史学员（active=false）——老师主动恢复的（_restoredByTeacher）除外
         const removed = removedFids.has(s.id);
-        await client.query(
-          `INSERT INTO students (org_id, owner_id, name, grade, notes, payload, active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [org, uid, s.name ?? '', s.grade ?? null, s.note ?? s.notes ?? null,
-            JSON.stringify(studentToRow(s).payload), s.id?.startsWith('arc-') ? false : removed ? false : true],
-        );
+        const forceActive = s._restoredByTeacher === true;
+        const active = s.id?.startsWith('arc-') ? false : removed && !forceActive ? false : true;
+        await upsertStudentRow(client, org, uid, s, active);
       }
 
       // 课次（schedule 表；studentId 前端 → 后端 id）——仅当前账号
@@ -405,6 +435,62 @@ router.post('/course-delete', async (req, res) => {
     return res.json({ ok: true, deleted: 1 });
   } catch (e) {
     err(res, 'DB_ERROR', '删除失败：' + (e?.message ?? e), 500);
+  }
+});
+
+// POST /api/desktop/students → 新增/更新单个学员（按 fid 逐条 upsert；服务器数据不被本地覆盖）
+router.post('/students', async (req, res) => {
+  const org = req.user.org_id ?? 1;
+  const uid = req.user.uid;
+  const s = (req.body ?? {}).student;
+  if (!s || !s.id) return err(res, 'BAD_REQUEST', '缺少学员数据', 400);
+  try {
+    await withTx(async (client) => {
+      if (s._shared) s._schoolStudent = true;
+      await upsertStudentRow(client, org, uid, s, true);
+    });
+    res.json({ ok: true });
+  } catch (e) {
+    err(res, 'DB_ERROR', '保存学员失败：' + (e?.message ?? e), 500);
+  }
+});
+
+// POST /api/desktop/student-archive → 学员移入历史（active=false，行保留）
+router.post('/student-archive', async (req, res) => {
+  const org = req.user.org_id ?? 1;
+  const uid = req.user.uid;
+  const fid = (req.body ?? {}).fid;
+  if (!fid) return err(res, 'BAD_REQUEST', '缺少学员 fid', 400);
+  const matchFid = fid?.startsWith('arc-') ? fid.slice(4) : fid;
+  try {
+    const r = await query(
+      `UPDATE students SET active = false, updated_at = now()
+       WHERE org_id = $1 AND owner_id = $2
+         AND (payload->>'_fid' = $3 OR payload->'student'->>'id' = $3)`,
+      [org, uid, matchFid],
+    );
+    res.json({ ok: true, updated: r.rowCount ?? 0 });
+  } catch (e) {
+    err(res, 'DB_ERROR', '移入历史失败：' + (e?.message ?? e), 500);
+  }
+});
+
+// POST /api/desktop/student-delete → 彻底删除学员（仅本账号名下；学校共享学员由校长端管理，不在此删除）
+router.post('/student-delete', async (req, res) => {
+  const org = req.user.org_id ?? 1;
+  const uid = req.user.uid;
+  const fid = (req.body ?? {}).fid;
+  if (!fid) return err(res, 'BAD_REQUEST', '缺少学员 fid', 400);
+  const matchFid = fid?.startsWith('arc-') ? fid.slice(4) : fid;
+  try {
+    const r = await query(
+      `DELETE FROM students WHERE org_id = $1 AND owner_id = $2
+         AND (payload->>'_fid' = $3 OR payload->'student'->>'id' = $3)`,
+      [org, uid, matchFid],
+    );
+    res.json({ ok: true, deleted: r.rowCount ?? 0 });
+  } catch (e) {
+    err(res, 'DB_ERROR', '删除学员失败：' + (e?.message ?? e), 500);
   }
 });
 

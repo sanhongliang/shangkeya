@@ -19,6 +19,7 @@ export interface IStudent {
   created_at?: string;
   _shared?: boolean; // 学校共享学员标记（后端返回）
   _schoolStudent?: boolean; // 学校来源学员（后端返回，老师端不能删除）
+  _restoredByTeacher?: boolean; // 老师主动从历史学员恢复（后端据此不再压回历史）
 }
 
 export interface ISummary {

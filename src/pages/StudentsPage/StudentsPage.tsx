@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { toast } from 'sonner';
 import { useAppData } from '@/data/app-store';
 import type { IAppData, IStudent } from '@/data/types';
-import { api } from '@/api/client';
+import { saveStudent, archiveStudent, deleteStudent } from '@/api/desktop';
 import { STUDENT_BOARD_COLORS } from '@/lib/studentColor';
 import RecordsSection from './RecordsSection';
 import StudentInfoSection from './StudentInfoSection';
@@ -37,6 +37,31 @@ function sortByCreatedDesc(a: IStudent, b: IStudent): number {
   return ta < tb ? 1 : ta > tb ? -1 : 0;
 }
 
+// 本地删除墓碑：与云端合并时排除已删除 fid，防止「本地删除尚未同步」被云端旧数据复活
+const DELETED_FIDS_KEY = 'shangkeya:deletedStudentFids';
+function loadTombstones(): string[] {
+  try {
+    const raw = localStorage.getItem(DELETED_FIDS_KEY);
+    return raw ? (JSON.parse(raw) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+function saveTombstones(fids: string[]): void {
+  try {
+    localStorage.setItem(DELETED_FIDS_KEY, JSON.stringify(fids));
+  } catch {
+    /* 忽略存储异常 */
+  }
+}
+function addTombstone(id: string): void {
+  const cur = loadTombstones();
+  if (!cur.includes(id)) saveTombstones([...cur, id]);
+}
+function removeTombstone(id: string): void {
+  saveTombstones(loadTombstones().filter((x) => x !== id));
+}
+
 /** 由充值记录 / 开课记录动态计算学员课时统计 */
 function calcStudentStats(s: IStudent | null, data: IAppData) {
   if (!s) return { recharge: 0, used: 0, remaining: 0 };
@@ -64,17 +89,21 @@ export default function StudentsPage() {
   const list = [...(mode === 'current' ? data.students : data.archivedStudents)].sort(sortByCreatedDesc);
   const selected = list.find((s) => s.id === selectedId) ?? null;
 
-  const handleSave = (student: IStudent) => {
+  const handleSave = async (student: IStudent) => {
     setData((prev) => ({
       ...prev,
       students: prev.students.map((s) => (s.id === student.id ? student : s)),
     }));
+    // 增删改查针对服务器：保存立即写服务器（单条 upsert，不覆盖服务器其他数据）
+    const ok = await saveStudent(student);
+    if (!ok) toast.error(`学员「${student.name}」保存到服务器失败，请检查网络`);
   };
 
-  // 当前学员：删除 = 移入历史学员
-  const handleArchive = (id: string) => {
+  // 当前学员：删除 = 移入历史学员（写墓碑，防未同步时被云端旧数据复活回当前；服务器行保留置为历史）
+  const handleArchive = async (id: string) => {
     const target = data.students.find((s) => s.id === id);
     if (!target) return;
+    addTombstone(id);
     setData((prev) => ({
       ...prev,
       students: prev.students.filter((s) => s.id !== id),
@@ -84,14 +113,18 @@ export default function StudentsPage() {
       scores: Object.fromEntries(Object.entries(prev.scores).filter(([k]) => k !== id)),
     }));
     setSelectedId((prevId) => (prevId === id ? list[0]?.id ?? null : prevId));
+    const ok = await archiveStudent(id);
+    if (!ok) toast.error(`学员「${target.name}」移入历史未同步服务器，请检查网络`);
     toast.success(`学员「${target.name}」已移入历史学员`);
   };
 
-  // 历史学员：删除 = 彻底删除（同步删除服务器数据，防止刷新后恢复）
+  // 历史学员：删除 = 彻底删除（同步删除服务器数据，防止刷新后恢复；墓碑保留防合并复活）
   const handleDeleteForever = async (id: string) => {
     const target = data.archivedStudents.find((s) => s.id === id);
     if (!target) return;
-    await api('/api/desktop/student-delete', { method: 'POST', body: { fid: id } }).catch(() => undefined);
+    addTombstone(id);
+    const ok = await deleteStudent(id);
+    if (!ok) toast.error(`学员「${target.name}」删除未同步服务器，请检查网络`);
     setData((prev) => ({
       ...prev,
       archivedStudents: prev.archivedStudents.filter((s) => s.id !== id),
@@ -100,25 +133,32 @@ export default function StudentsPage() {
     toast.success(`学员「${target.name}」已彻底删除`);
   };
 
-  // 历史学员：恢复回当前学员
-  const handleRestore = (id: string) => {
+  // 历史学员：恢复回当前学员（标记 _restoredByTeacher，后端据此不再把已解除的学校学员压回历史；移除墓碑；即时写服务器）
+  const handleRestore = async (id: string) => {
     const target = data.archivedStudents.find((s) => s.id === id);
     if (!target) return;
+    removeTombstone(id);
+    const restored = { ...target, _restoredByTeacher: true };
     setData((prev) => ({
       ...prev,
-      students: [...prev.students, target],
+      students: [...prev.students, restored],
       archivedStudents: prev.archivedStudents.filter((s) => s.id !== id),
     }));
     setMode('current');
     setSelectedId(target.id);
+    const ok = await saveStudent(restored);
+    if (!ok) toast.error(`学员「${target.name}」恢复未同步服务器，请检查网络`);
     toast.success(`学员「${target.name}」已恢复`);
   };
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     const name = `新学员${data.students.length + 1}`;
     const student = emptyStudent(name, data.students.length);
     setData((prev) => ({ ...prev, students: [...prev.students, student] }));
     setSelectedId(student.id);
+    // 增删改查针对服务器：新增立即写服务器
+    const ok = await saveStudent(student);
+    if (!ok) toast.error('新增学员未同步服务器，请检查网络');
     toast.success('已添加新学员，请完善信息');
   };
 

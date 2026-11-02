@@ -1,6 +1,6 @@
 // 桌面端云端数据服务：登录 / 加载云端状态 / 整包同步（含课次与手机端合并）
 import { api, setToken } from './client';
-import type { IAppData, ICourse } from '@/data/types';
+import type { IAppData, ICourse, IStudent } from '@/data/types';
 
 export interface CloudUser {
   id: number;
@@ -174,4 +174,25 @@ export async function syncCloudState(data: IAppData): Promise<void> {
   };
   const r = await api('/api/desktop/sync', { method: 'PUT', body });
   if (!r.ok) throw new Error(r.error?.message ?? '保存到服务器失败');
+}
+
+/** 单条保存学员（新增/更新）——服务器按 fid 逐条 upsert，不覆盖服务器其他学员（增删改查针对服务器） */
+export async function saveStudent(student: IStudent): Promise<boolean> {
+  const r = await api('/api/desktop/students', { method: 'POST', body: { student } });
+  if (!r.ok) { console.error('[cloud] 保存学员失败：', r.error?.message); return false; }
+  return true;
+}
+
+/** 学员移入历史（服务器行保留，active=false） */
+export async function archiveStudent(fid: string): Promise<boolean> {
+  const r = await api('/api/desktop/student-archive', { method: 'POST', body: { fid } });
+  if (!r.ok) { console.error('[cloud] 移入历史失败：', r.error?.message); return false; }
+  return true;
+}
+
+/** 彻底删除学员（仅本账号名下） */
+export async function deleteStudent(fid: string): Promise<boolean> {
+  const r = await api('/api/desktop/student-delete', { method: 'POST', body: { fid } });
+  if (!r.ok) { console.error('[cloud] 删除学员失败：', r.error?.message); return false; }
+  return true;
 }

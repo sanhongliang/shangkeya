@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
-import type { IAppData, ICourseNode } from '@/data/types';
+import type { IAppData, ICourseNode, IStudent } from '@/data/types';
 import { buildSeed } from '@/data/seed';
 import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
@@ -11,6 +11,10 @@ import { getToken, setToken } from '@/api/client';
 const NS = 'shangkeya';
 // 课件目录树本地持久化键：文件本体已存 IndexedDB，目录树仅内存 → 不持久化会导致添加的课件重启后丢失
 const CW_STORAGE_KEY = `${NS}:courseware`;
+// 学员数据本地持久化键：重启后先恢复本地再与云端合并，防止「添加后未同步/登录时云端覆盖」导致新增学员消失
+const STUDENTS_KEY = `${NS}:students`;
+const ARCHIVED_KEY = `${NS}:archivedStudents`;
+const DELETED_FIDS_KEY = `${NS}:deletedStudentFids`; // 本地删除墓碑（防云端未同步时合并复活）
 
 function emptySeed(): IAppData {
   const seed = buildSeed();
@@ -20,10 +24,49 @@ function emptySeed(): IAppData {
       const parsed = JSON.parse(raw) as Record<string, ICourseNode[]>;
       if (parsed && typeof parsed === 'object') seed.courseware = parsed;
     }
+    const stuRaw = localStorage.getItem(STUDENTS_KEY);
+    if (stuRaw) {
+      const parsed = JSON.parse(stuRaw) as IStudent[];
+      if (Array.isArray(parsed)) seed.students = parsed;
+    }
+    const arcRaw = localStorage.getItem(ARCHIVED_KEY);
+    if (arcRaw) {
+      const parsed = JSON.parse(arcRaw) as IStudent[];
+      if (Array.isArray(parsed)) seed.archivedStudents = parsed;
+    }
   } catch {
-    /* 读取失败忽略（使用空目录树） */
+    /* 读取失败忽略（使用空数据） */
   }
   return seed;
+}
+
+/** 合并云端与本地学员：本地优先（最新编辑/未同步新增），云端补缺（学校新增/其他设备），墓碑排除（本地删除不复活） */
+function mergeStudents(cloud: IStudent[] | undefined, local: IStudent[], tombstones: Set<string>): IStudent[] {
+  const out: IStudent[] = [];
+  const seen = new Set<string>();
+  for (const s of local ?? []) {
+    if (!s?.id || tombstones.has(s.id)) continue;
+    out.push(s);
+    seen.add(s.id);
+  }
+  for (const s of cloud ?? []) {
+    if (!s?.id || tombstones.has(s.id) || seen.has(s.id)) continue;
+    out.push(s);
+    seen.add(s.id);
+  }
+  return out;
+}
+
+/** 读取本地删除墓碑（fid 集合） */
+function loadDeletedFids(): Set<string> {
+  try {
+    const raw = localStorage.getItem(DELETED_FIDS_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw) as string[];
+    return new Set(Array.isArray(arr) ? arr : []);
+  } catch {
+    return new Set();
+  }
 }
 
 function loadAuth(): IAuthUser | null {
@@ -103,6 +146,16 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [data.courseware]);
 
+  // 学员数据本地持久化（重启恢复 + 与云端合并，防止新增学员消失）
+  useEffect(() => {
+    try {
+      localStorage.setItem(STUDENTS_KEY, JSON.stringify(data.students ?? []));
+      localStorage.setItem(ARCHIVED_KEY, JSON.stringify(data.archivedStudents ?? []));
+    } catch {
+      /* 忽略存储异常 */
+    }
+  }, [data.students, data.archivedStudents]);
+
   // 数据变更 → 防抖推送云端（排除 courseware / accounts / archivedStudents 本地部分）
   useEffect(() => {
     if (!cloudReady) return;
@@ -142,10 +195,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       try {
         const cloud = await loadCloudState();
         setDataState((prev) => {
+          const tombstones = loadDeletedFids();
           const merged: IAppData = {
             ...prev,
-            students: cloud.students ?? prev.students,
-            archivedStudents: cloud.archivedStudents ?? prev.archivedStudents,
+            students: mergeStudents(cloud.students, prev.students, tombstones),
+            archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
             courses: cloud.courses ?? prev.courses,
             schedule: cloud.schedule ?? prev.schedule,
             recharges: cloud.recharges ?? prev.recharges,
@@ -184,10 +238,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     try {
       const cloud = await loadCloudState();
       setDataState((prev) => {
+        const tombstones = loadDeletedFids();
         const merged: IAppData = {
           ...prev,
-          students: cloud.students ?? prev.students,
-          archivedStudents: cloud.archivedStudents ?? prev.archivedStudents,
+          students: mergeStudents(cloud.students, prev.students, tombstones),
+          archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
           courses: cloud.courses ?? prev.courses,
           schedule: cloud.schedule ?? prev.schedule,
           recharges: cloud.recharges ?? prev.recharges,
@@ -223,10 +278,11 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         const cloud = await loadCloudState();
         if (stop) return;
         setDataState((prev) => {
+          const tombstones = loadDeletedFids();
           const merged: IAppData = {
             ...prev,
-            students: cloud.students ?? prev.students,
-            archivedStudents: cloud.archivedStudents ?? prev.archivedStudents,
+            students: mergeStudents(cloud.students, prev.students, tombstones),
+            archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
             courses: cloud.courses ?? prev.courses,
             schedule: cloud.schedule ?? prev.schedule,
             recharges: cloud.recharges ?? prev.recharges,
