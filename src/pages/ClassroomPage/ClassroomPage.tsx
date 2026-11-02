@@ -203,8 +203,14 @@ export default function ClassroomPage() {
     })(),
   );
   const [addCwOpen, setAddCwOpen] = useState(false);
-  // 本次课堂新添加的课件 id（属于本课内容，不进入「前节内容」）
-  const [addedCwIds, setAddedCwIds] = useState<string[]>([]);
+  // 本次课堂新添加的课件 id（属于本课内容，不进入「前节内容」；持久化：重启后恢复，与加入本课/本机目录一致）
+  const [addedCwIds, setAddedCwIds] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(`skey_added_cw_${cwPersistKey}`) ?? '[]') as string[];
+    } catch {
+      return [];
+    }
+  });
   // 黑板比例：按 tiff 课件首页尺寸固定（无课件时黑板也保持该比例）
   const [tiffAspect, setTiffAspect] = useState<number | undefined>(undefined);
   const [newName, setNewName] = useState('');
@@ -423,6 +429,14 @@ export default function ClassroomPage() {
       /* 忽略存储异常 */
     }
   }, [localLessonIds, cwPersistKey]);
+  // 持久化：本次课堂「添加课件」的课件 id（重启后可恢复显示；按课程隔离）
+  useEffect(() => {
+    try {
+      localStorage.setItem(`skey_added_cw_${cwPersistKey}`, JSON.stringify(addedCwIds));
+    } catch {
+      /* 忽略存储异常 */
+    }
+  }, [addedCwIds, cwPersistKey]);
 
   // 加入本课：前节内容选中的文件加入本课课件列表（不影响黑板内容）
   const addToLesson = () => {
