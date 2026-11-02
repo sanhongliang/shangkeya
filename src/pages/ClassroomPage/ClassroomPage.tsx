@@ -645,6 +645,12 @@ export default function ClassroomPage() {
     }
   };
 
+  // 选中课件稳定标识：内容相同而引用变化（如云端合并/自动刷新重建 course.files 引用）时不重新加载，
+  // 避免翻页过程中被触发重载 → 重置回第一页 → 加载中断显示黑板
+  const selectedCwKey = selectedCw
+    ? `${selectedCw.id}|${selectedCw.file?.name ?? ''}|${selectedCw.file?.size ?? 0}|${selectedCw.file?.mime ?? ''}`
+    : '';
+
   // 选中文件课件 → 加载：PDF/图片转图片组作为画布背景（可书写）；PPT 显示导出提示
   useEffect(() => {
     let url: string | null = null;
@@ -798,7 +804,9 @@ export default function ClassroomPage() {
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [selectedCw]);
+    // 依赖用稳定标识而非 selectedCw 对象：内容相同而引用变化（云端合并/自动刷新）时不重新加载
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCwKey]);
 
   // 当前生效的图片组（仅当与当前选中课件匹配时使用，避免切换残留）
   const selectedIsTiff = selectedCw?.file
@@ -1832,7 +1840,10 @@ export default function ClassroomPage() {
     import('@tauri-apps/api/event')
       .then(({ listen }) =>
         listen('bc:pageChanged', (e) => {
-          if (!cancelled) setPage(Number(e.payload) || 0);
+          if (cancelled) return;
+          const n = Number(e.payload);
+          // 仅接受有限非负页码；异常/陈旧 payload 不强制归零（避免翻页跳回第一页）
+          if (Number.isFinite(n) && n >= 0) setPage(n);
         }),
       )
       .then((u) => {

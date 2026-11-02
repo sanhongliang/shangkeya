@@ -2,16 +2,28 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
-import type { IAppData } from '@/data/types';
+import type { IAppData, ICourseNode } from '@/data/types';
 import { buildSeed } from '@/data/seed';
 import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
 import { getToken, setToken } from '@/api/client';
 
 const NS = 'shangkeya';
+// 课件目录树本地持久化键：文件本体已存 IndexedDB，目录树仅内存 → 不持久化会导致添加的课件重启后丢失
+const CW_STORAGE_KEY = `${NS}:courseware`;
 
 function emptySeed(): IAppData {
-  return buildSeed();
+  const seed = buildSeed();
+  try {
+    const raw = localStorage.getItem(CW_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Record<string, ICourseNode[]>;
+      if (parsed && typeof parsed === 'object') seed.courseware = parsed;
+    }
+  } catch {
+    /* 读取失败忽略（使用空目录树） */
+  }
+  return seed;
 }
 
 function loadAuth(): IAuthUser | null {
@@ -81,6 +93,15 @@ export default function AppProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // 课件目录树本地持久化（文件本体已在 IndexedDB；目录树仅内存 → 重启后添加的课件丢失）
+  useEffect(() => {
+    try {
+      localStorage.setItem(CW_STORAGE_KEY, JSON.stringify(data.courseware ?? {}));
+    } catch {
+      /* 忽略存储异常 */
+    }
+  }, [data.courseware]);
 
   // 数据变更 → 防抖推送云端（排除 courseware / accounts / archivedStudents 本地部分）
   useEffect(() => {
