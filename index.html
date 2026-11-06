@@ -3,6 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <script>
+      /* ES2025 Iterator Helpers 最小 polyfill。
+         pdfjs-dist 6（PDF 课件）在模块顶层直接访问 Iterator.prototype.join，
+         而 macOS 14.x（Safari < 18）的 WebKit 没有 Iterator 全局对象，
+         会抛 ReferenceError: Can't find variable: Iterator 导致整个 bundle 崩溃、页面全白。
+         这里补齐 Iterator 构造函数与其 prototype.join，保证旧内核也能加载。 */
+      (function () {
+        if (typeof window.Iterator !== 'undefined') return;
+        var proto = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+        var It = function Iterator() {};
+        It.prototype = proto;
+        if (typeof proto.join !== 'function') {
+          proto.join = function (sep) {
+            return Array.from(this).join(sep);
+          };
+        }
+        if (typeof It.from !== 'function') {
+          It.from = function (src) {
+            if (src == null) throw new TypeError('Iterator.from: source is null');
+            if (typeof src[Symbol.iterator] === 'function') return src[Symbol.iterator]();
+            if (typeof src.next === 'function') return src;
+            throw new TypeError('Iterator.from: source is not iterable');
+          };
+        }
+        window.Iterator = It;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
