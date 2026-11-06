@@ -120,8 +120,11 @@ export default function SettingsPage() {
                         backgroundImage:
                           opt.value === 'custom' && settings.customBoardImage
                             ? `url("${settings.customBoardImage}")`
-                            : undefined,
-                        backgroundSize: '100% 100%',
+                            : opt.value === 'black'
+                              ? 'linear-gradient(rgba(255,255,255,0.14) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.14) 1px, transparent 1px)'
+                              : undefined,
+                        backgroundSize:
+                          opt.value === 'black' ? '8px 8px, 8px 8px' : '100% 100%',
                         backgroundPosition: 'center',
                       }}
                       className={
@@ -130,7 +133,7 @@ export default function SettingsPage() {
                           : opt.value === 'white'
                             ? 'h-20 w-full max-w-[140px] cursor-pointer rounded border-2 border-black bg-white'
                             : opt.value === 'black'
-                              ? 'h-20 w-full max-w-[140px] cursor-pointer rounded border bg-slate-900'
+                              ? 'h-20 w-full max-w-[140px] cursor-pointer rounded border border-neutral-600 bg-[#2b2b30]'
                               : 'h-20 w-full max-w-[140px] cursor-pointer rounded border bg-gradient-to-br from-sky-100 to-indigo-100') +
                         (settings.boardStyle === opt.value
                           ? ' ring-2 ring-blue-500 ring-offset-2'

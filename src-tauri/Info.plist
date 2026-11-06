@@ -12,5 +12,15 @@
         <key>NSAllowsArbitraryLoadsInWebContent</key>
         <true/>
     </dict>
+    <!-- 声明应用为简体中文应用：系统文件选择框（打开/保存/选择文件夹）的按钮与标题随之显示中文，
+         否则未声明本地化的应用在中文 macOS 上仍会弹出英文的 Open/Cancel。 -->
+    <key>CFBundleDevelopmentRegion</key>
+    <string>zh_CN</string>
+    <key>CFBundleLocalizations</key>
+    <array>
+        <string>zh_CN</string>
+        <string>zh-Hans</string>
+        <string>en</string>
+    </array>
 </dict>
 </plist>

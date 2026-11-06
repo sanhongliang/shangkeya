@@ -1,4 +1,16 @@
-// EXPORTS: IStudent, ICourse, IRecharge, IScheduleItem, IScoreEntry, ISummary, ISettings, IAnnouncement, ICourseNode, IAppData, IAuthUser
+// EXPORTS: IStudent, ISalaryRule, ICourse, IRecharge, IScheduleItem, IScoreEntry, ISummary, ISettings, IAnnouncement, ICourseNode, IAppData, IAuthUser
+
+/**
+ * 薪资规则：按时间段覆盖学员的课时价格（元/小时）。
+ * 起始/终止均可留空（空 = 无该边界）；多条同时命中时优先使用「新规则」（数组靠后的一条）。
+ */
+export interface ISalaryRule {
+  id: string;
+  amount: number; // 薪资（元/小时）
+  start?: string; // 生效起始日期 YYYY-MM-DD，留空表示不限起始
+  end?: string; // 生效终止日期 YYYY-MM-DD，留空表示不限终止
+  active: boolean; // 是否有效（取消勾选则该规则不参与计算）
+}
 
 export interface IStudent {
   id: string;
@@ -15,6 +27,8 @@ export interface IStudent {
   usedHours: number; // 已上课时
   remainingHours: number; // 剩余课时
   note: string; // 备注
+  /** 薪资规则（可选）：命中区间的规则优先于 price 计算课时收入；为空则沿用 price */
+  salaryRules?: ISalaryRule[];
   /** 添加时间（服务端 created_at，ISO 字符串；本地新加未同步时为空） */
   created_at?: string;
   _shared?: boolean; // 学校共享学员标记（后端返回）

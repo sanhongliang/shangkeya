@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Archive, ChevronDown, ChevronUp, Pencil, RotateCcw, Save, Trash2, UserPlus, X } from 'lucide-react';
+import { Archive, ChevronDown, ChevronUp, Pencil, Plus, RotateCcw, Save, Trash2, UserPlus, X } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   AlertDialog,
@@ -14,10 +14,11 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import type { IStudent } from '@/data/types';
+import type { IStudent, ISalaryRule } from '@/data/types';
 import { cn } from '@/lib/utils';
 import { studentBoardColor } from '@/lib/studentColor';
 
@@ -63,6 +64,40 @@ export default function StudentInfoSection({
 
   const patch = (partial: Partial<IStudent>) => {
     setDraft((prev) => (prev ? { ...prev, ...partial } : prev));
+  };
+
+  // —— 薪资规则：按时间段覆盖课时价格，可添加多条、可单独删除 ——
+  const patchSalaryRule = (id: string, partial: Partial<ISalaryRule>) => {
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            salaryRules: (prev.salaryRules ?? []).map((r) =>
+              r.id === id ? { ...r, ...partial } : r,
+            ),
+          }
+        : prev,
+    );
+  };
+
+  const addSalaryRule = () => {
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const rules = prev.salaryRules ?? [];
+      const rule: ISalaryRule = {
+        id: `sr_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`,
+        amount: prev.price,
+        active: true,
+      };
+      // 追加到末尾：多条同时命中时以数组靠后（较新）的一条为准
+      return { ...prev, salaryRules: [...rules, rule] };
+    });
+  };
+
+  const removeSalaryRule = (id: string) => {
+    setDraft((prev) =>
+      prev ? { ...prev, salaryRules: (prev.salaryRules ?? []).filter((r) => r.id !== id) } : prev,
+    );
   };
 
   const handleSave = () => {
@@ -150,6 +185,11 @@ export default function StudentInfoSection({
             {/* 只读信息：第二行（统计由充值记录 / 开课记录计算） */}
             <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
               <span>课时价格：{display.price}元</span>
+              {(display.salaryRules ?? []).filter((r) => r.active).length > 0 && (
+                <span className="text-primary">
+                  · 薪资规则 {(display.salaryRules ?? []).filter((r) => r.active).length} 条生效
+                </span>
+              )}
               <span>累计充值：{stats?.recharge ?? 0}元</span>
               <span>已上课时：{stats?.used ?? 0}h</span>
               <span className="font-medium text-primary">剩余课时：{stats?.remaining ?? 0}h</span>
@@ -306,6 +346,96 @@ export default function StudentInfoSection({
                   <Label className="w-16 shrink-0 text-right text-sm" />
                   <Input className="h-9 min-w-0 flex-1" tabIndex={-1} readOnly />
                 </div>
+              </div>
+              {/* 薪资规则：按时间段覆盖课时价格，命中规则时优先用规则金额 */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-3">
+                  <Label className="w-16 shrink-0 text-right text-sm">薪资规则</Label>
+                  <span className="text-xs text-muted-foreground">
+                    命中区间的规则优先于课时价格；多条同时命中时以下方较新的为准
+                  </span>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="ml-auto h-8"
+                    onClick={addSalaryRule}
+                  >
+                    <Plus className="mr-1 h-4 w-4" />
+                    添加规则
+                  </Button>
+                </div>
+                {(display.salaryRules ?? []).length === 0 ? (
+                  <p className="pl-[76px] text-xs text-muted-foreground">
+                    未设置规则，按上方课时价格计算薪资
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    {(display.salaryRules ?? []).map((r, i) => (
+                      <div
+                        key={r.id}
+                        className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 px-2 py-1.5"
+                      >
+                        <span className="w-14 shrink-0 text-xs text-muted-foreground">
+                          规则 {i + 1}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">薪资</Label>
+                          <Input
+                            type="number"
+                            className="h-8 w-24"
+                            value={r.amount}
+                            onChange={(e) =>
+                              patchSalaryRule(r.id, { amount: Number(e.target.value) || 0 })
+                            }
+                          />
+                          <span className="text-xs text-muted-foreground">元/小时</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">起始</Label>
+                          <Input
+                            type="date"
+                            className="h-8 w-36"
+                            value={r.start ?? ''}
+                            title="留空表示不限起始时间"
+                            onChange={(e) =>
+                              patchSalaryRule(r.id, { start: e.target.value || undefined })
+                            }
+                          />
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <Label className="text-xs">终止</Label>
+                          <Input
+                            type="date"
+                            className="h-8 w-36"
+                            value={r.end ?? ''}
+                            title="留空表示不限终止时间"
+                            onChange={(e) =>
+                              patchSalaryRule(r.id, { end: e.target.value || undefined })
+                            }
+                          />
+                        </div>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-xs">
+                          <Checkbox
+                            checked={r.active}
+                            onCheckedChange={(v) => patchSalaryRule(r.id, { active: !!v })}
+                          />
+                          有效
+                        </label>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="ghost"
+                          className="ml-auto h-8 px-2 text-destructive hover:text-destructive"
+                          title="删除该规则"
+                          onClick={() => removeSalaryRule(r.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
               {/* 备注 */}
               <div className="flex items-center gap-3">

@@ -73,12 +73,14 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
     );
   }
 
-  const markDone = (id: string) => {
+  const toggleDone = (id: string) => {
+    const target = data.courses.find((c) => c.id === id);
+    const next = !target?.done;
     setData((prev) => ({
       ...prev,
-      courses: prev.courses.map((c) => (c.id === id ? { ...c, done: true } : c)),
+      courses: prev.courses.map((c) => (c.id === id ? { ...c, done: next } : c)),
     }));
-    toast.success('课程已标记完成');
+    toast.success(next ? '课程已标记完成' : '已取消完成标记');
   };
 
   // 成绩按日期升序（图表展示用）
@@ -235,6 +237,7 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                               v ? courses.filter((x) => !x.done).map((c) => c.id) : [],
                             )
                           }
+                          className="size-[18px] border-[1.5px] border-gray-500 bg-white shadow-sm hover:border-primary"
                           aria-label="全选"
                         />
                       </TableHead>
@@ -285,12 +288,20 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                         </TableCell>
                         <TableCell className="whitespace-nowrap">
                           {c.done ? (
-                            <CheckCircle2 className="h-4 w-4 text-success" />
+                            <button
+                              type="button"
+                              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium text-success hover:bg-accent"
+                              title="点击取消完成标记"
+                              onClick={() => toggleDone(c.id)}
+                            >
+                              <CheckCircle2 className="h-4 w-4" />
+                              已完成
+                            </button>
                           ) : (
                             <button
                               type="button"
                               className="rounded px-1.5 py-0.5 text-xs text-primary hover:bg-accent"
-                              onClick={() => markDone(c.id)}
+                              onClick={() => toggleDone(c.id)}
                             >
                               标记完成
                             </button>
@@ -301,6 +312,8 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                             <Checkbox
                               checked={isSelected}
                               disabled={c.done}
+                              title={c.done ? '已完成的课程不可批量删除' : '勾选后可批量删除'}
+                              className="size-[18px] border-[1.5px] border-gray-400 bg-white shadow-sm hover:border-primary disabled:border-gray-300"
                               onCheckedChange={(v) => {
                                 if (c.done) return;
                                 setSelectedIds((prev) =>

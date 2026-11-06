@@ -755,11 +755,34 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
           boardStyle === 'green'
             ? '#1f5e36'
             : boardStyle === 'black'
-              ? '#0f172a'
+              ? '#2b2b30'
               : '#f8fafc';
         ctx.fillStyle = bgFill;
         ctx.fillRect(0, 0, cwReal, chReal);
-        if (boardStyle === 'green') {
+        if (boardStyle === 'black') {
+          // 深灰板 + 浅灰网格线：每格约 40 逻辑像素，按画布缩放倍率换算成物理像素
+          const ratio = cwReal / Math.max(cw, 1);
+          const step = Math.max(6, Math.round(20 * ratio));
+          ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+          ctx.lineWidth = Math.max(1, Math.round(ratio));
+          for (let x = step; x < cwReal; x += step) {
+            ctx.beginPath();
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, chReal);
+            ctx.stroke();
+          }
+          for (let y = step; y < chReal; y += step) {
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(cwReal, y);
+            ctx.stroke();
+          }
+          // 边框：中灰实体边，比板面略亮，视觉上像实物黑板框
+          const borderW = Math.max(2, Math.round(6 * ratio));
+          ctx.strokeStyle = '#52525b';
+          ctx.lineWidth = borderW;
+          ctx.strokeRect(borderW / 2, borderW / 2, cwReal - borderW, chReal - borderW);
+        } else if (boardStyle === 'green') {
           // 绿板黄色边框（对应原 border-8 border-[#c9a227]）
           ctx.strokeStyle = '#c9a227';
           ctx.lineWidth = 8;

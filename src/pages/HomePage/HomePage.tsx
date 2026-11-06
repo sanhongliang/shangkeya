@@ -107,12 +107,13 @@ export default function HomePage() {
     setSummaryOpen(true);
   };
 
-  const markDone = (course: ICourse) => {
+  const toggleDone = (course: ICourse) => {
+    const next = !course.done;
     setData((prev) => ({
       ...prev,
-      courses: prev.courses.map((c) => (c.id === course.id ? { ...c, done: true } : c)),
+      courses: prev.courses.map((c) => (c.id === course.id ? { ...c, done: next } : c)),
     }));
-    toast.success(`「${course.content}」已标记完成`);
+    toast.success(next ? `「${course.content}」已标记完成` : `「${course.content}」已取消完成`);
   };
 
   const enterClassroom = (course: ICourse) => {
@@ -293,15 +294,18 @@ export default function HomePage() {
                       <Button
                         variant="outline"
                         size="sm"
-                        className="h-8 gap-1 px-2.5 text-xs"
-                        disabled={c.done}
+                        className={cn(
+                          'h-8 gap-1 px-2.5 text-xs',
+                          c.done && 'border-success/40 text-success',
+                        )}
+                        title={c.done ? '点击取消完成标记' : '标记为已完成'}
                         onClick={(e) => {
                           e.stopPropagation();
-                          markDone(c);
+                          toggleDone(c);
                         }}
                       >
                         <CheckCircle2 className="h-3.5 w-3.5" />
-                        完成
+                        {c.done ? '取消完成' : '完成'}
                       </Button>
                       <Button
                         size="sm"

@@ -718,7 +718,7 @@ export default function ClassroomPage() {
               setPdfForId(sel.id);
               setPage(0);
             })
-            .catch(() => toast.error('PDF 解析失败，请确认文件有效'))
+            .catch((e) => toast.error('PDF 解析失败：' + (e instanceof Error ? e.message : String(e))))
             .finally(() => {
               if (!cancelled) setPdfLoading(false);
             });
@@ -919,26 +919,27 @@ export default function ClassroomPage() {
           return;
         }
         // 初始位置：优先上次保存（win:answer:rect，物理坐标）；否则课堂窗口内右下角
+        // 注意：Tauri 创建窗口的 x/y 是「逻辑像素」，而 innerPosition/innerSize/localStorage 存的都是「物理像素」，
+        // Retina 屏（scaleFactor=2）必须除以 scale，否则窗口会被推到屏幕外、再被系统夹回右下角。
         let position: { x: number; y: number } | undefined;
         let winW = 520;
         let winH = 320;
         try {
+          const scale = await mw.scaleFactor();
           const saved = localStorage.getItem('win:answer:rect');
           if (saved) {
             const r = JSON.parse(saved) as { x?: number; y?: number; w?: number; h?: number };
-            if (typeof r.x === 'number' && typeof r.y === 'number') position = { x: r.x, y: r.y };
-            if (typeof r.w === 'number' && r.w >= 200) winW = r.w;
-            if (typeof r.h === 'number' && r.h >= 120) winH = r.h;
+            if (typeof r.x === 'number' && typeof r.y === 'number') {
+              position = { x: Math.round(r.x / scale), y: Math.round(r.y / scale) };
+            }
+            if (typeof r.w === 'number' && r.w >= 200) winW = Math.round(r.w / scale);
+            if (typeof r.h === 'number' && r.h >= 120) winH = Math.round(r.h / scale);
           }
           if (!position) {
-            const [pos, size, scale] = await Promise.all([
-              mw.innerPosition(),
-              mw.innerSize(),
-              mw.scaleFactor(),
-            ]);
+            const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
             position = {
-              x: Math.round(pos.x + (size.width - 560) * scale),
-              y: Math.round(pos.y + (size.height - 360) * scale),
+              x: Math.round(pos.x / scale + size.width / scale - winW - 20),
+              y: Math.round(pos.y / scale + size.height / scale - winH - 44),
             };
           }
         } catch {
@@ -1030,17 +1031,24 @@ export default function ClassroomPage() {
           );
           return;
         }
-        // 默认位置：优先上次保存（win:remark:pos）；否则课堂窗口内右侧偏下
+        // 默认位置：优先上次保存（win:remark:pos，物理坐标）；否则课堂窗口内右侧偏下
+        // x/y 传入按逻辑像素，物理坐标需除以 scaleFactor（Retina 屏否则会被夹到右下角）
         let position: { x: number; y: number } | undefined;
         try {
+          const scale = await mw.scaleFactor();
           const saved = localStorage.getItem('win:remark:pos');
           if (saved) {
             const r = JSON.parse(saved) as { x?: number; y?: number };
-            if (typeof r.x === 'number' && typeof r.y === 'number') position = { x: r.x, y: r.y };
+            if (typeof r.x === 'number' && typeof r.y === 'number') {
+              position = { x: Math.round(r.x / scale), y: Math.round(r.y / scale) };
+            }
           }
           if (!position) {
             const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
-            position = { x: Math.round(pos.x + size.width - 230), y: Math.round(pos.y + size.height - 540) };
+            position = {
+              x: Math.round(pos.x / scale + size.width / scale - 211 - 16),
+              y: Math.round(pos.y / scale + size.height / scale - 489 - 48),
+            };
           }
         } catch {
           /* 位置计算失败则使用默认 */
@@ -1089,30 +1097,32 @@ export default function ClassroomPage() {
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const mw = getCurrentWindow();
       const label = `addcw-${mw.label}`;
-      // 打开位置：优先上次保存（win:addcw:rect）；否则课堂窗口正中间（物理像素）
+      // 打开位置：优先上次保存（win:addcw:rect，物理坐标）；否则课堂窗口正中间
+      // 传入窗口的 x/y 为逻辑像素，物理值需除以 scaleFactor（Retina 屏否则会被夹到右下角）
       let winW = 420;
       let winH = 300;
       let x: number;
       let y: number;
+      const scale = await mw.scaleFactor();
       try {
         const saved = localStorage.getItem('win:addcw:rect');
         if (saved) {
           const r = JSON.parse(saved) as { x?: number; y?: number; w?: number; h?: number };
           if (typeof r.x === 'number' && typeof r.y === 'number') {
-            x = r.x;
-            y = r.y;
+            x = Math.round(r.x / scale);
+            y = Math.round(r.y / scale);
           } else {
             throw new Error('no-pos');
           }
-          if (typeof r.w === 'number' && r.w >= 360) winW = r.w;
-          if (typeof r.h === 'number' && r.h >= 260) winH = r.h;
+          if (typeof r.w === 'number' && r.w >= 360) winW = Math.round(r.w / scale);
+          if (typeof r.h === 'number' && r.h >= 260) winH = Math.round(r.h / scale);
         } else {
           throw new Error('no-saved');
         }
       } catch {
         const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
-        x = Math.round(pos.x + (size.width - winW) / 2);
-        y = Math.round(pos.y + (size.height - winH) / 2);
+        x = Math.round(pos.x / scale + (size.width / scale - winW) / 2);
+        y = Math.round(pos.y / scale + (size.height / scale - winH) / 2);
       }
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const win = new WebviewWindow(label, {
@@ -1160,127 +1170,28 @@ export default function ClassroomPage() {
     }
   }, [tauriMode]);
 
-  // 清空本页确认弹窗：独立窗口（与添加课件同方式），显示顺序高于黑板
-  const confirmClearWinRef = useRef<WebviewWindowType | null>(null);
-  const openConfirmClearWindow = useCallback(async () => {
-    if (!tauriMode) {
-      // 非桌面端：黑板在页面内，直接使用页面级确认
-      if (window.confirm('确定清空本页全部板书吗？此操作不可撤销。')) {
-        boardRef.current?.clear();
-        toast.info('本页板书已清空');
-      }
-      return;
-    }
-    if (confirmClearWinRef.current) {
-      void confirmClearWinRef.current.setFocus();
-      return;
-    }
-    try {
-      const { getCurrentWindow } = await import('@tauri-apps/api/window');
-      const mw = getCurrentWindow();
-      const label = `confirm-${mw.label}`;
-      const W = 300;
-      const H = 170;
-      // 打开默认位置：课堂窗口正中间（物理像素）
-      const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
-      const x = Math.round(pos.x + (size.width - W) / 2);
-      const y = Math.round(pos.y + (size.height - H) / 2);
-      const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
-      const win = new WebviewWindow(label, {
-        title: '清空本页',
-        width: W,
-        height: H,
-        minWidth: 280,
-        minHeight: 160,
-        x,
-        y,
-        resizable: false,
-        // 不可最大化 / 不可最小化
-        maximizable: false,
-        minimizable: false,
-        // 清空确认弹窗作为黑板窗口的子窗口（owned）：永远显示在黑板窗口上方，不被黑板遮挡
-        parent: boardWinRef.current ? 'blackboard-canvas' : mw.label,
-        url: 'index.html#/confirm-clear',
-      });
-      win.once('tauri://error', () => {
-        confirmClearWinRef.current = null;
-        toast.error('清空确认弹窗创建失败');
-      });
-      win.once('tauri://created', () => {
-        confirmClearWinRef.current = win;
-        // 创建新窗口可能被系统连带收起黑板窗口：按打开前状态恢复（仅此一次）
-        window.setTimeout(async () => {
-          const bw = boardWinRef.current;
-          if (!bw) return;
-          try {
-            if (await bw.isMinimized()) await bw.unminimize();
-            if (!(await bw.isVisible())) await bw.show();
-          } catch {
-            /* 黑板窗口可能已关闭 */
-          }
-        }, 300);
-      });
-      win.once('tauri://destroyed', () => {
-        confirmClearWinRef.current = null;
-      });
-    } catch (e) {
-      confirmClearWinRef.current = null;
-      toast.error(`清空确认弹窗打开失败：${String(e)}`);
-    }
-  }, [tauriMode]);
-
-  // 点击清空本页：课件书写层激活时直接清空课件批注；否则桌面端走独立确认弹窗，确认后清空黑板
+  // 点击清空本页：课件书写层激活时清空课件批注；否则直接清空板书（已按要求去掉二次确认）
   const handleClearClick = useCallback(() => {
     const ov = mediaInfo ? mediaOverlayRef.current : htmlInfo ? htmlOverlayRef.current : null;
     if (ov && ov.isWriting()) {
       ov.clear();
       return;
     }
+    // 板书画布在黑板窗口内：发 bc:clear 让黑板窗口清空画布（课堂页内画布仅为占位，不持有板书）
     if (tauriMode) {
-      void openConfirmClearWindow();
-    } else {
-      if (window.confirm('确定清空本页全部板书吗？此操作不可撤销。')) {
-        boardRef.current?.clear();
-        toast.info('本页板书已清空');
-      }
+      void import('@tauri-apps/api/core').then(({ invoke }) => {
+        invoke('board_emit', { event: 'bc:clear', payload: null }).catch(() => undefined);
+        invoke('board_emit', { event: 'bc:toast', payload: { msg: '本页板书已清空' } }).catch(
+          () => undefined,
+        );
+      });
+      // 黑板窗口未打开时板书在页面内占位画布上，一并清空（已打开时占位画布本就为空）
+      boardRef.current?.clear();
+      return;
     }
-  }, [tauriMode, openConfirmClearWindow, mediaInfo, htmlInfo]);
-
-  // 清空确认弹窗事件桥接
-  useEffect(() => {
-    if (!tauriMode) return;
-    // 竞态安全注册：listen 是异步注册，若 effect 重挂载时旧监听注册未完成，
-    // 旧监听会残留导致事件重复触发。disposed 标记让迟到完成的旧监听立即注销。
-    let disposed = false;
-    const unlisteners: (() => void)[] = [];
-    const regs: Promise<() => void>[] = [];
-    const collect = (p: Promise<() => void>) => {
-      regs.push(p);
-      p.then((u) => {
-        if (disposed) u();
-        else unlisteners.push(u);
-      }).catch(() => undefined);
-    };
-    collect(
-      listen('confirm-clear:ok', () => {
-        // 板书画布在黑板窗口内：发 bc:clear 让黑板窗口清空画布（课堂页内画布仅为占位，不持有板书）
-        sendToBoard('bc:clear');
-        sendToBoard('bc:toast', { msg: '本页板书已清空' });
-        void confirmClearWinRef.current?.close().catch(() => undefined);
-      }),
-    );
-    collect(
-      listen('confirm-clear:cancel', () => {
-        void confirmClearWinRef.current?.close().catch(() => undefined);
-      }),
-    );
-    void Promise.all(regs).catch(() => undefined);
-    return () => {
-      disposed = true;
-      unlisteners.forEach((f) => f());
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tauriMode]);
+    boardRef.current?.clear();
+    toast.info('本页板书已清空');
+  }, [tauriMode, mediaInfo, htmlInfo]);
 
   // 添加课件子窗口 → 主窗口 事件桥接（用 ref 持有最新处理函数，避免闭包过期）
   const addcwHandlersRef = useRef({ pick: () => void 0, add: () => void 0 });
@@ -1551,8 +1462,10 @@ export default function ClassroomPage() {
       const mw = getCurrentWindow();
       const [pos, scale] = await Promise.all([mw.innerPosition(), mw.scaleFactor()]);
       const rect = boardPlaceholderRef.current?.getBoundingClientRect();
-      const zoneW = Math.round((rect?.width ?? 800) * scale);
-      const zoneH = Math.round((rect?.height ?? 500) * scale);
+      // 统一按「逻辑像素」计算：innerPosition 是物理像素需除以 scale；rect 本身就是逻辑像素。
+      // 窗口 x/y/width/height 均按逻辑像素解释，macOS Retina 上混用物理值会被系统夹到屏幕右下角。
+      const zoneW = Math.round(rect?.width ?? 800);
+      const zoneH = Math.round(rect?.height ?? 500);
       // 黑板窗口初始尺寸按设置页黑板画面比例（16:9→878:494、9:16→494:878、4:3、自定义）；
       // 自由比例：宽=占位区宽-20、高=占位区高-20（充满占位区，每边 10px，不 contain）；
       // 贴合/跟随规则保持独立窗口实现方式（创建后由 bc 推送比例 + winPos 贴合持续校正）
@@ -1571,8 +1484,8 @@ export default function ClassroomPage() {
           wPx = Math.round(hPx * aspect);
         }
       }
-      const x = Math.round(pos.x + (rect?.left ?? 0) * scale + (zoneW - wPx) / 2);
-      const y = Math.round(pos.y + (rect?.top ?? 0) * scale + (zoneH - hPx) / 2);
+      const x = Math.round(pos.x / scale + (rect?.left ?? 0) + (zoneW - wPx) / 2);
+      const y = Math.round(pos.y / scale + (rect?.top ?? 0) + (zoneH - hPx) / 2);
       const win = new WebviewWindow('blackboard-canvas', {
         title: '上课鸭 · 黑板',
         width: wPx,
@@ -2389,6 +2302,12 @@ export default function ClassroomPage() {
                   <ps.icon className="h-3.5 w-12" />
                 </button>
               ))}
+            </div>
+          </div>
+          {/* 工具栏最下边：显示当前选中的书写工具名称 */}
+          <div className="mt-auto w-full shrink-0 px-1 pt-1.5">
+            <div className="w-full truncate rounded-md bg-muted px-1 py-1 text-center text-[10px] leading-none text-foreground">
+              {(TOOLS.find((t) => t.id === tool)?.label) ?? ''}
             </div>
           </div>
           </div>
