@@ -19,7 +19,7 @@ import RechargeDialog from '@/components/RechargeDialog';
 import { fetchMyAccount, loadCloudState } from '@/api/desktop';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IStudent } from '@/data/types';
-import { startOfMonth, toISO } from '@/lib/dates';
+import { startOfMonth, endOfMonth, toISO } from '@/lib/dates';
 import { computeRangeStats, formatDuration, formatMoney } from '@/lib/stats';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -83,7 +83,8 @@ export default function HomePage() {
     studentsById[s.id] = s;
   }
 
-  const monthStats = computeRangeStats(data.courses, studentsById, startOfMonth(now), now);
+  // 本月统计：预排/规划按整月算（本月所有排课，上过没上过都计入），完成只算已标记完成的
+  const monthStats = computeRangeStats(data.courses, studentsById, startOfMonth(now), endOfMonth(now));
   const dayCourses = data.courses
     .filter((c) => c.date === selectedDate)
     .sort((a, b) => (a.start < b.start ? -1 : 1));

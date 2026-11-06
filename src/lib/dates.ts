@@ -1,4 +1,4 @@
-// EXPORTS: toISO, parseISO, isSameDay, startOfWeek, startOfMonth, startOfYear, endOfRange, formatCN, formatTimeCN, WEEKDAYS_CN, WEEK_FULL_CN, HOURS_CN, inRange, addDays, pad2
+// EXPORTS: toISO, parseISO, isSameDay, startOfWeek, startOfMonth, startOfYear, endOfMonth, endOfRange, formatCN, formatTimeCN, WEEKDAYS_CN, WEEK_FULL_CN, HOURS_CN, inRange, addDays, pad2
 export const WEEKDAYS_CN = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
 export const WEEK_FULL_CN = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
 
@@ -42,6 +42,11 @@ export function startOfYear(d: Date): Date {
 /** 区间末端（含当天，23:59:59） */
 export function endOfRange(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59);
+}
+
+/** 本月最后一天 23:59:59（用于「本月」整月统计，含尚未上到的排课） */
+export function endOfMonth(d: Date): Date {
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59);
 }
 
 /** date 字符串是否在 [from, to] 区间内 */

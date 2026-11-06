@@ -5,14 +5,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useAppData } from '@/data/app-store';
 import type { IStudent } from '@/data/types';
-import { endOfRange, startOfMonth, startOfWeek, startOfYear, toISO } from '@/lib/dates';
+import { addDays, endOfMonth, endOfRange, parseISO, startOfMonth, startOfWeek, startOfYear, toISO } from '@/lib/dates';
 import { computeRangeStats, formatMoney } from '@/lib/stats';
 
 export default function SalaryPage() {
   const { data } = useAppData();
   const now = new Date();
+  // 默认统计整月：规划(预排)按月内全部排课计，完成只算已标记完成的
   const [from, setFrom] = useState<string>(toISO(startOfMonth(now)));
-  const [to, setTo] = useState<string>(toISO(now));
+  const [to, setTo] = useState<string>(toISO(endOfMonth(now)));
 
   const studentsById: Record<string, IStudent> = {};
   for (const s of data.students) studentsById[s.id] = s;
@@ -20,15 +21,16 @@ export default function SalaryPage() {
   const statsCustom = computeRangeStats(
     data.courses,
     studentsById,
-    new Date(from),
-    endOfRange(new Date(to)),
+    parseISO(from),
+    endOfRange(parseISO(to)),
   );
 
+  // 快捷区间一律取到该区间末尾：规划=区间内全部排课，完成的课不会有未来日期，故完成数不受影响
   const quick: { label: string; from: Date; to: Date }[] = [
-    { label: '今日', from: now, to: now },
-    { label: '本周', from: startOfWeek(now), to: now },
-    { label: '本月', from: startOfMonth(now), to: now },
-    { label: '今年', from: startOfYear(now), to: now },
+    { label: '今日', from: now, to: endOfRange(now) },
+    { label: '本周', from: startOfWeek(now), to: endOfRange(addDays(startOfWeek(now), 6)) },
+    { label: '本月', from: startOfMonth(now), to: endOfMonth(now) },
+    { label: '今年', from: startOfYear(now), to: new Date(now.getFullYear(), 11, 31, 23, 59, 59) },
   ];
 
   return (
