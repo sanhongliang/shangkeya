@@ -29,6 +29,26 @@
         }
         window.Iterator = It;
       })();
+      /* Uint8Array.prototype.toBase64 / Uint8Array.fromBase64 是 ES2025 新 API，
+         同样只在 Safari 18.4+ 存在；pdfjs-dist 6 的数字签名校验路径会用到，
+         旧内核打开签名 PDF 时会抛 TypeError。这里补标准 base64 实现。 */
+      (function () {
+        if (typeof Uint8Array.prototype.toBase64 !== 'function') {
+          Uint8Array.prototype.toBase64 = function () {
+            var bin = '';
+            for (var i = 0; i < this.length; i++) bin += String.fromCharCode(this[i]);
+            return btoa(bin);
+          };
+        }
+        if (typeof Uint8Array.fromBase64 !== 'function') {
+          Uint8Array.fromBase64 = function (s) {
+            var bin = atob(s);
+            var out = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+            return out;
+          };
+        }
+      })();
     </script>
   </head>
   <body>
