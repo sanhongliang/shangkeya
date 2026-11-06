@@ -11,7 +11,6 @@
   },
   "app": {
     "withGlobalTauri": true,
-    "appDirectoriesOverride": "./app-data",
     "windows": [
       {
         "label": "main",
