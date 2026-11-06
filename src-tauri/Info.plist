@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- macOS 默认 ATS 会拦截明文 HTTP 请求；后端 API 目前走 http://82.156.240.204，
+         不放开会导致验证码、登录等所有接口请求失败（表现为"无法连接服务器"）。
+         NSAllowsArbitraryLoadsInWebContent 对 WKWebView 生效，NSAllowsArbitraryLoads 覆盖面更广。 -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <true/>
+        <key>NSAllowsArbitraryLoadsInWebContent</key>
+        <true/>
+    </dict>
+</dict>
+</plist>
