@@ -359,8 +359,8 @@ router.put('/sync', async (req, res) => {
         if (schoolCourseFids.has(c.id) || schoolCourseFids.has(row.payload._fid)) continue;
         // 规则：学校学员的课老师不能排——老师自建课关联学校学员一律跳过（不入库，前端添加弹窗已禁用）
         if (schoolStudentFids.has(c.studentId)) continue;
-        // 已完成课保留原行，不重插（防止同一课出现两份）
-        if (doneFids.has(c.id)) continue;
+        // 已完成课保留原行不重插（防止同一课出现两份）；但本地「取消完成」必须把状态写回
+        if (doneFids.has(c.id) && c.done === true) continue;
         if (seenCid.has(c.id)) continue;
         seenCid.add(c.id);
         keptFids.add(String(c.id));
@@ -369,8 +369,8 @@ router.put('/sync', async (req, res) => {
           byFid.get(String(c.id)) ??
           (row.payload?._fid ? byFid.get(String(row.payload._fid)) : undefined);
         if (hit) {
-          // 已存在的课：原地更新，行 id 保持不变
-          if (hit.status === 'done') continue;
+          // 已存在的课：原地更新，行 id 保持不变；只有本地仍标记完成时才跳过（保留原行）
+          if (hit.status === 'done' && c.done === true) continue;
           await client.query(
             `UPDATE schedule SET student_id = $3, start_at = $4, end_at = $5, status = $6, payload = $7, updated_at = now()
              WHERE id = $1 AND owner_id = $2`,
