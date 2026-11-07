@@ -15,6 +15,10 @@ const NAV_ITEMS = [
   { path: '/settings', label: '设置' },
 ];
 
+/** 网页版不提供课件管理（浏览器读不到本地课件目录），仅在桌面客户端显示入口 */
+const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+const VISIBLE_NAV_ITEMS = NAV_ITEMS.filter((item) => IS_TAURI || item.path !== '/courseware');
+
 export const Layout = () => {
   const { authUser, logout } = useAppData();
   const navigate = useNavigate();
@@ -26,7 +30,7 @@ export const Layout = () => {
   };
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div className="app-shell flex flex-col overflow-hidden bg-background">
       <header className="flex h-14 shrink-0 items-center gap-8 border-b bg-card px-5">
         <div className="flex items-center gap-2 text-primary">
           <GraduationCap className="h-7 w-7" />
@@ -35,7 +39,7 @@ export const Layout = () => {
           </span>
         </div>
         <nav className="flex items-center gap-1">
-          {NAV_ITEMS.map((item) => (
+          {VISIBLE_NAV_ITEMS.map((item) => (
             <NavLink
               key={item.path}
               to={item.path}

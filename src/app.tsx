@@ -19,6 +19,26 @@ import AnswerWindowPage from '@/pages/AnswerWindowPage/AnswerWindowPage';
 import RemarkWindowPage from '@/pages/RemarkWindowPage/RemarkWindowPage';
 import NotFoundPage from '@/pages/NotFoundPage/NotFoundPage';
 
+/** 是否运行在桌面客户端（Tauri）；网页版无此标记 */
+const IS_TAURI = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+/** 给根节点打网页版标记，供全局样式在手机窄屏时锁定 1280×720 画布 */
+if (typeof document !== 'undefined' && !IS_TAURI) {
+  document.documentElement.classList.add('web-mode');
+}
+
+/** 网页版访问课件管理时的提示（网页版无法读取本地课件目录，该页仅在桌面端提供） */
+function WebCoursewareNotice() {
+  return (
+    <div className="mx-auto mt-20 max-w-md rounded-lg border bg-card p-8 text-center shadow-sm">
+      <div className="text-base font-semibold">课件管理仅支持桌面端</div>
+      <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+        网页版无法读取本地课件目录，因此未提供课件管理页面。
+        请下载「上课鸭」桌面客户端，在那里添加课件目录与管理课件。
+      </p>
+    </div>
+  );
+}
+
 /** 判断窗口矩形（屏幕坐标）是否与当前任一显示器有交集；用于恢复位置前校验（避免恢复到屏幕外导致窗口不可见） */
 async function isRectOnAnyMonitor(
   x: number,
@@ -126,7 +146,10 @@ export default function App() {
             <Route path="home" element={<HomePage />} />
             <Route path="students" element={<StudentsPage />} />
             <Route path="schedule" element={<SchedulePage />} />
-            <Route path="courseware" element={<CoursewarePage />} />
+            <Route
+              path="courseware"
+              element={IS_TAURI ? <CoursewarePage /> : <WebCoursewareNotice />}
+            />
             <Route path="salary" element={<SalaryPage />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>

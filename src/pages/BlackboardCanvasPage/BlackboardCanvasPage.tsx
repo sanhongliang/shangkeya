@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ComponentProps } from 'react';
+import { emitSafe } from '@/lib/tauri-mode';
 import { emit, listen } from '@tauri-apps/api/event';
 import BoardCanvas, { type BoardCanvasHandle } from '@/pages/ClassroomPage/BoardCanvas';
 import MediaPlayer, { type MediaInfo, type MediaPlayerHandle } from '@/components/MediaPlayer';
@@ -147,7 +148,7 @@ export default function BlackboardCanvasPage() {
         }
         unsubs.push(...us);
         // 监听注册完成 → 通知主窗口补推全量状态（避免窗口加载慢导致事件丢失）
-        void emit('bc:ready');
+        void emitSafe('bc:ready');
       })
       .catch(() => undefined);
     return () => {
@@ -165,14 +166,14 @@ export default function BlackboardCanvasPage() {
         e.preventDefault();
         setPage((p) => {
           const np = Math.max(0, p - 1);
-          if (np !== p) void emit('bc:pageChanged', np);
+          if (np !== p) void emitSafe('bc:pageChanged', np);
           return np;
         });
       } else if (e.key === 'ArrowRight') {
         e.preventDefault();
         setPage((p) => {
           const np = Math.min(pageCount - 1, p + 1);
-          if (np !== p) void emit('bc:pageChanged', np);
+          if (np !== p) void emitSafe('bc:pageChanged', np);
           return np;
         });
       }
@@ -274,13 +275,13 @@ export default function BlackboardCanvasPage() {
       await w.setSize(new PhysicalSize(wPx, hPx));
       lastSizeRef.current = { w: wPx, h: hPx };
     }
-    void emit('bc:winPosAck');
+    void emitSafe('bc:winPosAck');
   };
 
   // 关闭自己（通知主窗口回退，然后关闭）
   const closeSelf = async () => {
     try {
-      void emit('bc:closed');
+      void emitSafe('bc:closed');
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       await getCurrentWindow().close();
     } catch {
@@ -290,7 +291,7 @@ export default function BlackboardCanvasPage() {
 
   const onPageChange = (p: number) => {
     setPage(p);
-    void emit('bc:pageChanged', p);
+    void emitSafe('bc:pageChanged', p);
   };
 
   // 黑板窗口内提示（课堂窗口的提示会被黑板窗口盖住，改在本窗口显示）
@@ -328,7 +329,7 @@ export default function BlackboardCanvasPage() {
         showControls={false}
         boardBackground="#ffffff"
         zoomSync={zoomSync}
-        onZoomSync={(z, f) => void emit('bc:zoomChanged', { zoom: z, fill: f ?? z })}
+        onZoomSync={(z, f) => void emitSafe('bc:zoomChanged', { zoom: z, fill: f ?? z })}
         isTiffMode={patch.isTiffMode ?? init.isTiffMode}
         boardStyle={(patch.boardStyle ?? init.boardStyle) as ComponentProps<typeof BoardCanvas>['boardStyle']}
         customBoardImage={patch.customBoardImage ?? init.customBoardImage}

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { emitSafe } from '@/lib/tauri-mode';
 import { emit, listen } from '@tauri-apps/api/event';
 
 /** 主窗口推送的状态 */
@@ -37,7 +38,7 @@ export default function AddCoursewarePopup() {
       .then((fns) => us.push(...fns))
       .catch(() => undefined);
     // 通知主窗口：弹窗已就绪，可推送初始状态
-    void emit('addcw:ready');
+    void emitSafe('addcw:ready');
     return () => us.forEach((f) => f());
   }, []);
 
@@ -95,7 +96,7 @@ export default function AddCoursewarePopup() {
     >
       <h3 style={{ margin: '0 0 10px', fontSize: 15, fontWeight: 600 }}>添加课件</h3>
       <button
-        onClick={() => void emit('addcw:pick')}
+        onClick={() => void emitSafe('addcw:pick')}
         disabled={converting}
         style={{
           display: 'flex',
@@ -118,7 +119,7 @@ export default function AddCoursewarePopup() {
           {converting ? '⏳' : '📄'}
         </span>
         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {converting ? 'PPT 转换中…' : st.pickedName || '选择本地课件文件（PDF / PPT / 图片 / 视频 / 音频 / HTML）'}
+          {converting ? '文档转换中…' : st.pickedName || '选择本地课件文件（PDF / PPT / Word / 图片 / 视频 / 音频 / HTML）'}
         </span>
       </button>
       {st.error && (
@@ -153,7 +154,7 @@ export default function AddCoursewarePopup() {
         }}
       >
         <button
-          onClick={() => void emit('addcw:cancel')}
+          onClick={() => void emitSafe('addcw:cancel')}
           disabled={confirming}
           style={{
             height: 30,
@@ -191,6 +192,6 @@ export default function AddCoursewarePopup() {
   function onConfirm() {
     if (confirming) return;
     setConfirming(true);
-    void emit('addcw:confirm', { name });
+    void emitSafe('addcw:confirm', { name });
   }
 }

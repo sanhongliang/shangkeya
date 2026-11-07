@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { emitSafe } from '@/lib/tauri-mode';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow as WebviewWindowType } from '@tauri-apps/api/webviewWindow';
 import {
@@ -161,12 +162,12 @@ export default function ClassroomPage() {
       if (prev) URL.revokeObjectURL(prev.url);
       return null;
     });
-    void emit('bc:media', null);
+    void emitSafe('bc:media', null);
   };
 
   const closeHtml = () => {
     setHtmlInfo(null);
-    void emit('bc:html', null);
+    void emitSafe('bc:html', null);
   };
 
   const [cwSelId, setCwSelId] = useState<string | null>(null);
@@ -237,6 +238,22 @@ export default function ClassroomPage() {
     () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   );
   const [pptConverting, setPptConverting] = useState(false);
+  // PPT 转换器缺失时的安装引导（不内置 LibreOffice，指引用户自行下载安装）
+  const [loHelp, setLoHelp] = useState<{ open: boolean; platform: string; url: string }>({
+    open: false,
+    platform: 'windows',
+    url: 'https://www.libreoffice.org/download/download-libreoffice/',
+  });
+  const openLoDownload = useCallback(async () => {
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      await invoke('open_external', {
+        url: loHelp.url || 'https://www.libreoffice.org/download/download-libreoffice/',
+      });
+    } catch (e) {
+      toast.error(`打开下载页失败：${String(e)}`);
+    }
+  }, [loHelp.url]);
   // TIFF 图集课件：本机目录扫描 + 帧加载 + 问题帧答案独立窗口
   const [localTree, setLocalTree] = useState<LocalCwNode[] | null>(null);
   // 「本机目录」tab：课件目录下拉 + 版本/年级/学期下拉（与课件管理页同一逻辑）
@@ -281,6 +298,8 @@ export default function ClassroomPage() {
   const answerWinRef = useRef<WebviewWindowType | null>(null);
   // 页面备注窗口：黑板子窗口，翻页时当下页为 211×489 竖版备注帧则打开/刷新，否则关闭
   const remarkWinRef = useRef<WebviewWindowType | null>(null);
+  // 浏览器模式答案/预览窗口：只开一个并复用（避免每翻页 window.open 新开窗口堆满屏幕）
+  const answerWinBrowserRef = useRef<Window | null>(null);
 
   const timerText = `${pad2(Math.floor(seconds / 60))}:${pad2(seconds % 60)}`;
 
@@ -693,12 +712,12 @@ export default function ClassroomPage() {
           if (prev) URL.revokeObjectURL(prev.url);
           return null;
         });
-        void emit('bc:media', null);
+        void emitSafe('bc:media', null);
       }
       if (kind !== 'html') {
         // 切到非 HTML 课件：关闭网页课件 overlay（黑板窗口同步）
         setHtmlInfo(null);
-        void emit('bc:html', null);
+        void emitSafe('bc:html', null);
       }
       if (kind === 'pdf') {
         const cached = pdfParseCacheRef.current.get(sel.id);
@@ -792,7 +811,7 @@ export default function ClassroomPage() {
             setMediaInfo(info);
             // 仅「独立黑板窗口」模式需要把媒体同步到黑板窗口 overlay；浏览器模式 / 课堂黑板一体模式直接在课堂占位区播放
             if (tauriMode && data.settings.boardWindowMode === 'separate') {
-              void emit('bc:media', info);
+              void emitSafe('bc:media', info);
             }
           })
           .catch(() => toast.error('课件文件读取失败'));
@@ -808,7 +827,7 @@ export default function ClassroomPage() {
             const info: HtmlInfo = { srcDoc, name: sel.file?.name || sel.name };
             setHtmlInfo(info);
             if (tauriMode && data.settings.boardWindowMode === 'separate') {
-              void emit('bc:html', info);
+              void emitSafe('bc:html', info);
             }
           })
           .catch(() => toast.error('HTML 课件读取失败'));
@@ -867,15 +886,25 @@ export default function ClassroomPage() {
       const enableNext = !!opts?.enableNext;
       const nextUrl = opts?.nextUrl || '';
       if (!tauriMode) {
-        const label = `answer-${ownerKey}-${frameIndex}`;
-        const w = window.open('', label, 'width=520,height=320,resizable=yes,scrollbars=yes');
+        // 浏览器模式：同一课堂只保留一个答案/预览窗口；
+        // 曾用 `answer-${ownerKey}-${frameIndex}` 作窗口名，翻页即新窗口，导致越翻越多。
+        let w = answerWinBrowserRef.current;
+        if (!w || w.closed) {
+          w = window.open('', 'shangkeya-answer-window', 'width=520,height=320,resizable=yes,scrollbars=yes');
+          answerWinBrowserRef.current = w;
+        }
         if (w) {
           const src = hasAnswer && imgUrl ? imgUrl : nextUrl;
-          w.document.open();
-          w.document.write(
-            `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#f5f5f5}img{display:block;max-width:100%;margin:0 auto;background:#fff}</style></head><body>${src ? `<img src="${src}" alt="答案"/>` : ''}</body></html>`,
-          );
-          w.document.close();
+          try {
+            w.focus();
+            w.document.open();
+            w.document.write(
+              `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;height:100%;background:#f5f5f5}img{display:block;max-width:100%;margin:0 auto;background:#fff}</style></head><body>${src ? `<img src="${src}" alt="答案"/>` : ''}</body></html>`,
+            );
+            w.document.close();
+          } catch {
+            /* 窗口已被浏览器接管时忽略 */
+          }
         }
         return;
       }
@@ -1007,6 +1036,17 @@ export default function ClassroomPage() {
   // 隐藏答案窗口（非问题页时调用）
   const hideAnswerWindow = useCallback(() => {
     void answerWinRef.current?.hide().catch(() => undefined);
+    // 浏览器模式没有 hide，改为把复用窗口内容清空（等价隐藏，不关窗避免反复重开）
+    const w = answerWinBrowserRef.current;
+    if (w && !w.closed) {
+      try {
+        w.document.open();
+        w.document.write('<!doctype html><html><head><meta charset="utf-8"></head><body style="margin:0;height:100%;background:#f5f5f5"></body></html>');
+        w.document.close();
+      } catch {
+        /* 忽略 */
+      }
+    }
   }, []);
 
   // 页面备注窗口（黑板子窗口，固定 211×489 客户区，无最大化/最小化）：
@@ -1240,7 +1280,7 @@ export default function ClassroomPage() {
     collect(
       listen('addcw:ready', () => {
         // 子窗口就绪 → 推送当前状态（读 ref 拿最新值）
-        void emit('addcw:state', {
+        void emitSafe('addcw:state', {
           converting: pptConvertingRef.current,
           pickedName: pickedFileRef.current?.name,
           error: undefined,
@@ -1574,7 +1614,7 @@ export default function ClassroomPage() {
         const ip = await mw.innerPosition();
         const scale = await mw.scaleFactor();
         const rect = boardPlaceholderRef.current?.getBoundingClientRect();
-        void emit('bc:winPos', {
+        void emitSafe('bc:winPos', {
           ipX: ip.x,
           ipY: ip.y,
           scale,
@@ -2009,21 +2049,61 @@ export default function ClassroomPage() {
       // 对话框已关闭 → 恢复黑板窗口（即使后续转换耗时，黑板不再消失）
       void restoreBoard();
       if (!sel) return;
-      if (/\.(ppt|pptx)$/i.test(sel)) {
+      if (/\.(ppt|pptx|doc|docx)$/i.test(sel)) {
+        // PPT / Word 都先转成 PDF 再加载；转换器以「用户自行下载安装」为前提，先探测本机可用方案
+        // Windows 优先 WPS/Office（COM）：演示文稿走 WPS 演示/PowerPoint，Word 走 WPS 文字/Word
+        // macOS 的 Office/WPS 不支持 COM，只认 LibreOffice
+        const isWord = /\.docx?$/i.test(sel);
+        let conv: {
+          wps?: boolean;
+          office?: boolean;
+          wpsWord?: boolean;
+          officeWord?: boolean;
+          libreoffice?: boolean;
+          platform?: string;
+          downloadUrl?: string;
+        } | null = null;
+        try {
+          conv = await invoke('detect_ppt_converters');
+        } catch {
+          conv = null;
+        }
+        const hasConv = conv
+          ? isWord
+            ? !!(conv.wpsWord || conv.officeWord || conv.libreoffice)
+            : !!(conv.wps || conv.office || conv.libreoffice)
+          : true;
+        if (conv && !hasConv) {
+          setLoHelp({
+            open: true,
+            platform: String(conv.platform ?? 'windows'),
+            url: String(conv.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
+          });
+          void emitSafe('addcw:state', { converting: false });
+          return;
+        }
         setPptConverting(true);
-        void emit('addcw:state', { converting: true });
+        void emitSafe('addcw:state', { converting: true });
         try {
           const bytes = await invoke<number[]>('convert_ppt_to_pdf', { src: sel });
-          const name = sel.split(/[\\/]/).pop()!.replace(/\.(ppt|pptx)$/i, '.pdf');
+          const name = sel.split(/[\\/]/).pop()!.replace(/\.(ppt|pptx|doc|docx)$/i, '.pdf');
           const pdfFile = new File([new Uint8Array(bytes)], name, { type: 'application/pdf' });
           // 转换成功 → 显示转换后的 PDF 文件名，等待用户点击「添加」确认入库（不自动添加）
           setPickedFile(pdfFile);
           pickedFilePromiseRef.current = Promise.resolve(pdfFile);
           setNewName(name.replace(/\.pdf$/i, ''));
-          void emit('addcw:state', { converting: false, pickedName: name });
+          void emitSafe('addcw:state', { converting: false, pickedName: name });
         } catch (e) {
-          toast.error(`PPT 转换失败：${String(e)}`);
-          void emit('addcw:state', { converting: false, error: `PPT 转换失败：${String(e)}` });
+          const msg = String(e);
+          if (msg.includes('未找到可用')) {
+            setLoHelp({
+              open: true,
+              platform: String(conv?.platform ?? 'windows'),
+              url: String(conv?.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
+            });
+          }
+          toast.error(`文档转换失败：${msg}`);
+          void emitSafe('addcw:state', { converting: false, error: `文档转换失败：${msg}` });
         } finally {
           setPptConverting(false);
         }
@@ -2034,7 +2114,7 @@ export default function ClassroomPage() {
       const name = sel.split(/[\\/]/).pop() || '课件';
       const mime = mimeForFile(name);
       setNewName(name.replace(/\.[^.]+$/, ''));
-      void emit('addcw:state', { converting: false, pickedName: name });
+      void emitSafe('addcw:state', { converting: false, pickedName: name });
       const p = invoke<number[]>('read_courseware_file', { path: sel })
         .then((bytes) => new File([new Uint8Array(bytes)], name, { type: mime }))
         .catch(() => null);
@@ -2045,7 +2125,7 @@ export default function ClassroomPage() {
     } catch (e) {
       void restoreBoard();
       toast.error(String(e));
-      void emit('addcw:state', { converting: false, error: String(e) });
+      void emitSafe('addcw:state', { converting: false, error: String(e) });
     }
     } finally {
       pickingRef.current = false;
@@ -2149,7 +2229,7 @@ export default function ClassroomPage() {
     if (file.file && /\.(pdf|tiff?)$/i.test(file.file.name)) {
       void preparseCourseware(file);
     }
-    void emit('addcw:done');
+    void emitSafe('addcw:done');
     // 双保险：直接关闭添加课件弹窗（不依赖弹窗收到 done 后自行关闭）
     void addcwWinRef.current?.close().catch(() => undefined);
   };
@@ -2953,6 +3033,41 @@ export default function ClassroomPage() {
           </Tabs>
         </div>
       </div>
+
+      {/* PPT 转换器缺失引导：安装包不内置 LibreOffice，引导用户自行下载安装 */}
+      <Dialog open={loHelp.open} onOpenChange={(v) => setLoHelp((s) => ({ ...s, open: v }))}>
+        <DialogContent className="max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>需要先安装 LibreOffice</DialogTitle>
+          </DialogHeader>
+          {loHelp.platform === 'macos' ? (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>
+                苹果电脑上的 PowerPoint / WPS 不支持被程序自动调用，PPT / Word 转 PDF 需要借助免费的
+                LibreOffice。
+              </p>
+              <p>
+                下载 macOS 版时，Apple 芯片（M1/M2/M3…）选「Apple Silicon」，Intel 芯片选「x86-64」，
+                下载后把图标拖进「应用程序」即完成安装。
+              </p>
+              <p>装好后重新点击「选择课件」选中 PPT，就会自动转换。</p>
+            </div>
+          ) : (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p>本机没有检测到可用的 WPS / Office / LibreOffice，暂时无法把 PPT / Word 转成 PDF。</p>
+              <p>
+                安装任意一款后重新点击「选择课件」即可；WPS / Office 会被优先使用，LibreOffice 作为兜底。
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoHelp((s) => ({ ...s, open: false }))}>
+              知道了
+            </Button>
+            <Button onClick={() => void openLoDownload()}>打开 LibreOffice 下载页</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* 添加课件弹窗（支持上传 PPT/PDF/图片）：桌面端为课堂窗口子窗口（显示顺序高于黑板） */}
       <Dialog

@@ -1,4 +1,4 @@
-// 上课鸭 桌面端：PPT → PDF 转换（WPS/Office COM → LibreOffice 兜底）
+// 上课鸭 桌面端：文档（PPT / Word）→ PDF 转换（WPS/Office COM → LibreOffice 兜底）
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
@@ -11,18 +11,69 @@ use tauri_plugin_dialog::DialogExt;
 #[tauri::command]
 fn detect_ppt_converters() -> serde_json::Value {
     let soffice = find_soffice();
+    // macOS 的 Office / WPS 均不支持 COM 自动化，只有 LibreOffice 一条路
+    #[cfg(target_os = "macos")]
+    let (wps_ok, office_ok) = (false, false);
+    #[cfg(not(target_os = "macos"))]
+    let (wps_ok, office_ok) = (
+        com_progid_available("KWPP.Application") || com_progid_available("WPP.Application"),
+        com_progid_available("PowerPoint.Application"),
+    );
+    // Word 侧单独探测：只装了 WPS 演示没装 WPS 文字，或只装了 PowerPoint 没装 Word 的情况都存在
+    #[cfg(target_os = "macos")]
+    let (wps_word, office_word) = (false, false);
+    #[cfg(not(target_os = "macos"))]
+    let (wps_word, office_word) = (
+        com_progid_available("KWPS.Application") || com_progid_available("WPS.Application"),
+        com_progid_available("Word.Application"),
+    );
     serde_json::json!({
-        "wps": com_progid_available("KWPP.Application") || com_progid_available("WPP.Application"),
-        "office": com_progid_available("PowerPoint.Application"),
+        "wps": wps_ok,
+        "office": office_ok,
+        "wpsWord": wps_word,
+        "officeWord": office_word,
         "libreoffice": soffice.is_some(),
         "libreofficePath": soffice.map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(),
+        "platform": if cfg!(target_os = "macos") { "macos" } else { "windows" },
+        "downloadUrl": "https://www.libreoffice.org/download/download-libreoffice/",
     })
 }
 
-/// 把 PPT 转换为 PDF，返回 PDF 字节
+/// 打开外部链接。只放行 LibreOffice 官方域名，避免被当成任意 URL 打开器。
+#[tauri::command]
+fn open_external(url: String) -> Result<(), String> {
+    let allowed = [
+        "https://www.libreoffice.org/",
+        "https://libreoffice.org/",
+        "https://download.libreoffice.org/",
+        "https://zh-cn.libreoffice.org/",
+    ]
+    .iter()
+    .any(|p| url.starts_with(p));
+    if !allowed {
+        return Err("不允许打开该链接".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map_err(|e| format!("打开链接失败: {e}"))?;
+    }
+    Ok(())
+}
+
+/// 把课件文档（PPT / Word）转换为 PDF，返回 PDF 字节
 #[tauri::command]
 fn convert_ppt_to_pdf(src: String) -> Result<Vec<u8>, String> {
-    let out = convert_ppt(src.as_str()).map_err(|e| format!("PPT 转换失败: {e}"))?;
+    let out = convert_ppt(src.as_str()).map_err(|e| format!("文档转换失败: {e}"))?;
     std::fs::read(&out).map_err(|e| format!("读取转换结果失败: {e}"))
 }
 
@@ -36,34 +87,65 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
         .unwrap_or_default();
-    if !["ppt", "pptx"].contains(&ext.as_str()) {
-        return Err(format!("不支持的文件类型: .{ext}（仅支持 ppt/pptx）"));
+    if !["ppt", "pptx", "doc", "docx"].contains(&ext.as_str()) {
+        return Err(format!("不支持的文件类型: .{ext}（仅支持 ppt/pptx/doc/docx）"));
     }
+    // Word 走 Writer 系（WPS 文字 / Word），演示文稿走 Impress 系（WPS 演示 / PowerPoint）
+    let is_word = ext.starts_with("doc");
     let stem = src_path
         .file_stem()
         .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| "ppt".into());
+        .unwrap_or_else(|| "doc".into());
     let out = std::env::temp_dir().join(format!("shangkeya_{}_{}.pdf", stem, std::process::id()));
 
-    // ① WPS 演示 COM
-    for progid in ["KWPP.Application", "WPP.Application"] {
-        if com_progid_available(progid) {
-            let r = convert_via_com(progid, src, out.as_path());
-            if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-                return Ok(out);
+    // ①② WPS / MS Office COM（仅非 macOS：macOS 的 Office / WPS 不支持 COM 自动化）
+    #[cfg(not(target_os = "macos"))]
+    {
+        if is_word {
+            for progid in ["KWPS.Application", "WPS.Application"] {
+                if com_progid_available(progid) {
+                    let r = convert_via_word_com(progid, src, out.as_path());
+                    if r.is_ok()
+                        && out.exists()
+                        && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                    {
+                        return Ok(out);
+                    }
+                    let _ = std::fs::remove_file(&out);
+                }
             }
-            let _ = std::fs::remove_file(&out);
+            if com_progid_available("Word.Application") {
+                let r = convert_via_word_com("Word.Application", src, out.as_path());
+                if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                {
+                    return Ok(out);
+                }
+                let _ = std::fs::remove_file(&out);
+            }
+        } else {
+            for progid in ["KWPP.Application", "WPP.Application"] {
+                if com_progid_available(progid) {
+                    let r = convert_via_com(progid, src, out.as_path());
+                    if r.is_ok()
+                        && out.exists()
+                        && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                    {
+                        return Ok(out);
+                    }
+                    let _ = std::fs::remove_file(&out);
+                }
+            }
+            if com_progid_available("PowerPoint.Application") {
+                let r = convert_via_com("PowerPoint.Application", src, out.as_path());
+                if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
+                {
+                    return Ok(out);
+                }
+                let _ = std::fs::remove_file(&out);
+            }
         }
     }
-    // ② MS Office PowerPoint COM
-    if com_progid_available("PowerPoint.Application") {
-        let r = convert_via_com("PowerPoint.Application", src, out.as_path());
-        if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false) {
-            return Ok(out);
-        }
-        let _ = std::fs::remove_file(&out);
-    }
-    // ③ LibreOffice 兜底
+    // ③ LibreOffice 兜底（Windows / macOS 通用；自动按文档类型选 Writer / Impress 引擎）
     if let Some(soffice) = find_soffice() {
         let r = convert_via_soffice(soffice.as_path(), src, out.as_path());
         if r.is_ok() && out.exists() {
@@ -71,10 +153,20 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
         }
         let _ = std::fs::remove_file(&out);
     }
-    Err("未找到可用的 PPT 转换器（请安装 WPS/Office，或使用 LibreOffice）".into())
+    let hint = if cfg!(target_os = "macos") {
+        "未找到可用的文档转换器：macOS 需安装 LibreOffice（官网 libreoffice.org 下载，或执行 brew install --cask libreoffice），装好后再转换即可"
+            .to_string()
+    } else if is_word {
+        "未找到可用的文档转换器（Word 文档需安装 WPS 文字 / Microsoft Word，或使用 LibreOffice）"
+            .to_string()
+    } else {
+        "未找到可用的文档转换器（请安装 WPS/Office，或使用 LibreOffice）".to_string()
+    };
+    Err(hint)
 }
 
-/// 通过 PowerShell COM 调用 WPS/Office 另存为 PDF（带超时保护）
+/// 通过 PowerShell COM 调用 WPS/Office 另存为 PDF（带超时保护；仅非 macOS）
+#[cfg(not(target_os = "macos"))]
 fn convert_via_com(progid: &str, src: &str, out: &Path) -> Result<(), String> {
     // 安全：路径经环境变量传递，避免命令注入
     // Visible 赋值对 WPS 可能抛 E_FAIL（KWPP 不支持），容错忽略；
@@ -114,11 +206,62 @@ try {
     }
 }
 
-/// 通过 LibreOffice headless 转换（带超时保护）
+/// 通过 PowerShell COM 调用 WPS 文字 / MS Word 另存为 PDF（带超时保护；仅非 macOS）
+#[cfg(not(target_os = "macos"))]
+fn convert_via_word_com(progid: &str, src: &str, out: &Path) -> Result<(), String> {
+    // 安全：路径经环境变量传递，避免命令注入。
+    // WPS 文字与 MS Word 的导出接口不完全一致：依次尝试 SaveAs2 / SaveAs / ExportAsFixedFormat
+    // （17 = wdFormatPDF / wdExportFormatPDF）
+    let script = r#"
+$ErrorActionPreference = 'Stop'
+$app = New-Object -ComObject $env:SKY_PROGID
+$doc = $null
+$ok = $false
+try {
+  try { $app.Visible = $false } catch {}
+  $doc = $app.Documents.Open($env:SKY_SRC)
+  try { $doc.SaveAs2($env:SKY_OUT, 17); $ok = $true } catch {}
+  if (-not $ok) { try { $doc.SaveAs($env:SKY_OUT, 17); $ok = $true } catch {} }
+  if (-not $ok) { try { $doc.ExportAsFixedFormat($env:SKY_OUT, 17); $ok = $true } catch {} }
+} catch {}
+try { if ($doc) { $doc.Close(0) } } catch {}
+try { $app.Quit() } catch {}
+if ($ok) { exit 0 } else { exit 1 }
+"#;
+    let mut cmd = Command::new("powershell");
+    cmd.arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-Command")
+        .arg(script)
+        .env("SKY_PROGID", progid)
+        .env("SKY_SRC", src)
+        .env("SKY_OUT", out.to_string_lossy().into_owned())
+        .env("SKY_TMP", std::env::temp_dir().to_string_lossy().into_owned());
+    let ok = run_with_timeout(&mut cmd, 90).map_err(|e| format!("COM 转换失败（{progid}）: {e}"))?;
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("COM 转换失败（{progid}）"))
+    }
+}
+
+/// 通过 LibreOffice headless 转换（带超时保护；Windows / macOS 通用）
 fn convert_via_soffice(soffice: &Path, src: &str, out: &Path) -> Result<(), String> {
     let outdir = out.parent().unwrap_or_else(|| Path::new("."));
+    // 独立配置目录：避免与已运行的 LibreOffice / 首次启动向导抢配置锁，
+    // macOS 上 headless 与 GUI 共用一个 profile 会卡住不返回。
+    let profile = std::env::temp_dir().join("shangkeya_lo_profile");
+    let _ = std::fs::create_dir_all(&profile);
+    // file:// + 正斜杠绝对路径：macOS 形如 file:///var/...，Windows 形如 file:///C:/...
+    let raw = profile.to_string_lossy().replace('\\', "/").replace(' ', "%20");
+    let profile_url = if raw.starts_with('/') {
+        format!("file://{raw}")
+    } else {
+        format!("file:///{raw}")
+    };
     let mut cmd = Command::new(soffice);
-    cmd.arg("--headless")
+    cmd.arg(format!("-env:UserInstallation={profile_url}"))
+        .arg("--headless")
         .arg("--norestore")
         .arg("--invisible")
         .arg("--convert-to")
@@ -140,6 +283,13 @@ fn convert_via_soffice(soffice: &Path, src: &str, out: &Path) -> Result<(), Stri
             .map(|s| s.to_string_lossy().into_owned())
             .unwrap_or_else(|| "ppt".into())
     ));
+    // Windows 的 soffice.exe 是启动器，可能先返回再在后台写文件；这里补一段等待
+    for _ in 0..100 {
+        if produced.exists() {
+            break;
+        }
+        thread::sleep(Duration::from_millis(200));
+    }
     if produced.exists() && produced != out {
         std::fs::copy(&produced, out)
             .map_err(|e| format!("重命名转换结果失败: {e}"))?;
@@ -168,7 +318,8 @@ fn run_with_timeout(cmd: &mut Command, secs: u64) -> Result<bool, String> {
     }
 }
 
-/// 探测 COM ProgID 是否已注册
+/// 探测 COM ProgID 是否已注册（仅非 macOS）
+#[cfg(not(target_os = "macos"))]
 fn com_progid_available(progid: &str) -> bool {
     for root in ["HKLM:\\SOFTWARE\\Classes", "HKCU:\\SOFTWARE\\Classes"] {
         let test = format!("{}\\{}", root, progid);
@@ -207,28 +358,77 @@ fn com_progid_available(progid: &str) -> bool {
 
 /// 探测 LibreOffice 可执行文件（打包兜底目录 → 常见安装路径 → PATH）
 fn find_soffice() -> Option<PathBuf> {
-    // 1. EXE 同级 libreoffice/（打包兜底）
+    // 1. 可执行文件同级内置 LibreOffice（打包兜底）
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
-            let p = dir.join("libreoffice").join("program").join("soffice.exe");
-            if p.exists() {
-                return Some(p);
+            #[cfg(target_os = "macos")]
+            for rel in [
+                "libreoffice/LibreOffice.app/Contents/MacOS/soffice",
+                "libreoffice/MacOS/soffice",
+                "libreoffice/soffice",
+            ] {
+                let p = dir.join(rel);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                for name in ["soffice.com", "soffice.exe"] {
+                    let p = dir.join("libreoffice").join("program").join(name);
+                    if p.exists() {
+                        return Some(p);
+                    }
+                }
             }
         }
     }
     // 2. 常见安装路径
-    for p in [
-        r"C:\Program Files\LibreOffice\program\soffice.exe",
-        r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
-        r"C:\Program Files\LibreOffice\program\soffice.com",
-    ] {
-        let path = PathBuf::from(p);
-        if path.exists() {
-            return Some(path);
+    #[cfg(target_os = "macos")]
+    {
+        for p in [
+            "/Applications/LibreOffice.app/Contents/MacOS/soffice",
+            "/opt/homebrew/bin/soffice",
+            "/usr/local/bin/soffice",
+        ] {
+            let path = PathBuf::from(p);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            let path = PathBuf::from(home)
+                .join("Applications")
+                .join("LibreOffice.app")
+                .join("Contents")
+                .join("MacOS")
+                .join("soffice");
+            if path.exists() {
+                return Some(path);
+            }
         }
     }
-    // 3. PATH
-    let status = Command::new("where").arg("soffice").output().ok()?;
+    #[cfg(not(target_os = "macos"))]
+    {
+        // .com 是控制台版，会等待转换完成并返回真实退出码；.exe 只是启动器（会提前返回）
+        for p in [
+            r"C:\Program Files\LibreOffice\program\soffice.com",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.com",
+            r"C:\Program Files\LibreOffice\program\soffice.exe",
+            r"C:\Program Files (x86)\LibreOffice\program\soffice.exe",
+        ] {
+            let path = PathBuf::from(p);
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+    // 3. PATH 查找（macOS 用 which，Windows 用 where）
+    #[cfg(target_os = "macos")]
+    let finder = "which";
+    #[cfg(not(target_os = "macos"))]
+    let finder = "where";
+    let status = Command::new(finder).arg("soffice").output().ok()?;
     if status.status.success() {
         let first = String::from_utf8_lossy(&status.stdout)
             .lines()
@@ -784,6 +984,8 @@ async fn pick_courseware_dialog(
             &[
                 "ppt",
                 "pptx",
+                "doc",
+                "docx",
                 "pdf",
                 "png",
                 "jpg",
@@ -916,6 +1118,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             detect_ppt_converters,
             convert_ppt_to_pdf,
+            open_external,
             scan_courseware_tree,
             remove_import_cache,
             read_courseware_file,

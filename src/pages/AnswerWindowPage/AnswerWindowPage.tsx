@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { emitSafe } from '@/lib/tauri-mode';
 import { emit } from '@tauri-apps/api/event';
 import { readTextFile } from '@tauri-apps/plugin-fs';
 import { tempDir, join } from '@tauri-apps/api/path';
@@ -27,7 +28,7 @@ export default function AnswerWindowPage() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
       e.preventDefault();
-      void emit('cw:pageNav', { dir: e.key === 'ArrowLeft' ? -1 : 1 });
+      void emitSafe('cw:pageNav', { dir: e.key === 'ArrowLeft' ? -1 : 1 });
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

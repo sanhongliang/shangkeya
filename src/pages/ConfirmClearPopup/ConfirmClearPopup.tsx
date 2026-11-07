@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { emitSafe } from '@/lib/tauri-mode';
 import { emit, listen } from '@tauri-apps/api/event';
 
 /**
@@ -40,7 +41,7 @@ export default function ConfirmClearPopup() {
       </p>
       <div style={{ marginTop: 'auto', display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
         <button
-          onClick={() => void emit('confirm-clear:cancel')}
+          onClick={() => void emitSafe('confirm-clear:cancel')}
           style={{
             height: 30,
             padding: '0 14px',
@@ -54,7 +55,7 @@ export default function ConfirmClearPopup() {
           取消
         </button>
         <button
-          onClick={() => void emit('confirm-clear:ok')}
+          onClick={() => void emitSafe('confirm-clear:ok')}
           style={{
             height: 30,
             padding: '0 18px',

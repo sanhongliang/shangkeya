@@ -2,3 +2,29 @@
 @import "tw-animate-css";
 @import "./tailwind-theme.css";
 @import "./typography.css";
+
+/* 主框架高度：桌面端与宽屏网页版铺满视口 */
+.app-shell {
+  height: 100vh;
+}
+
+/*
+ * 网页版在手机/小屏上（视口窄于 1280 或矮于 720）：锁定 1280×720 的桌面画布，
+ * 超出屏幕的部分交给浏览器横向（必要时纵向）滚动，避免内容被挤压重叠。
+ * 桌面客户端不加 web-mode，因此完全不受影响。
+ */
+@media (max-width: 1279.98px), (max-height: 719.98px) {
+  html.web-mode,
+  html.web-mode body {
+    min-width: 1280px;
+    min-height: 720px;
+  }
+  html.web-mode body {
+    overflow-x: auto;
+  }
+  html.web-mode .app-shell {
+    width: 1280px;
+    height: 720px;
+    flex: none;
+  }
+}

@@ -18,7 +18,19 @@ function postProcess() {
 
   const capture = `<script>
 (function(){
+  // 只在“启动阶段”（页面还没渲染出内容）才整页显示错误；
+  // 运行期零星的报错/未处理拒绝只写控制台，避免把已经正常使用的页面盖成红字“崩了”。
+  function isStartupPhase(){
+    try{
+      var r=document.getElementById('root');
+      return !r || r.childElementCount===0;
+    }catch(_){ return true; }
+  }
   function show(msg){
+    if(!isStartupPhase()){
+      try{ console.error('[页面错误]', msg); }catch(_){}
+      return;
+    }
     try{
       var d=document.createElement('div');
       d.style.cssText='position:fixed;left:0;top:0;right:0;bottom:0;padding:24px;background:#fff;color:#b00020;font:13px/1.6 monospace;white-space:pre-wrap;z-index:99999;overflow:auto';
