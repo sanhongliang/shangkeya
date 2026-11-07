@@ -27,7 +27,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScheduleItem, ISummary, IStudent } from '@/data/types';
 import { api } from '@/api/client';
-import { loadCloudState, syncCloudState, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
+import { loadCloudState, syncCloudState, markLastSyncedSnap, snapOfBusiness, setCourseDone } from '@/api/desktop';
 import { addDays, pad2, startOfWeek, toISO, WEEKDAYS_CN } from '@/lib/dates';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -240,9 +240,15 @@ export default function SchedulePage() {
     }));
   };
 
-  const confirmDone = () => {
+  const confirmDone = async () => {
     if (!selectedCourse) {
       toast.error('请先选择课程');
+      return;
+    }
+    // 先写服务器（单条接口），成功才改本地
+    const r = await setCourseDone(selectedCourse.id, true);
+    if (!r.ok) {
+      toast.error(r.message ?? '确认完成失败，请稍后重试');
       return;
     }
     setData((prev) => ({

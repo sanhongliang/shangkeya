@@ -16,7 +16,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import RechargeDialog from '@/components/RechargeDialog';
-import { fetchMyAccount, loadCloudState } from '@/api/desktop';
+import { fetchMyAccount, loadCloudState, setCourseDone } from '@/api/desktop';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IStudent } from '@/data/types';
 import { startOfMonth, endOfMonth, toISO } from '@/lib/dates';
@@ -107,8 +107,14 @@ export default function HomePage() {
     setSummaryOpen(true);
   };
 
-  const toggleDone = (course: ICourse) => {
+  const toggleDone = async (course: ICourse) => {
     const next = !course.done;
+    // 先写服务器（单条接口），成功才改本地；避免“点了立刻刷新又被云端旧值盖回去”
+    const r = await setCourseDone(course.id, next);
+    if (!r.ok) {
+      toast.error(r.message ?? '更新失败，请稍后重试');
+      return;
+    }
     setData((prev) => ({
       ...prev,
       courses: prev.courses.map((c) => (c.id === course.id ? { ...c, done: next } : c)),

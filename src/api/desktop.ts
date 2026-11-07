@@ -176,6 +176,16 @@ export async function syncCloudState(data: IAppData): Promise<void> {
   if (!r.ok) throw new Error(r.error?.message ?? '保存到服务器失败');
 }
 
+/** 单条课次完成状态（确认完成 / 取消完成）——立即写服务器，不等 800ms 整包同步 */
+export async function setCourseDone(fid: string, done: boolean): Promise<{ ok: boolean; message?: string }> {
+  const r = await api('/api/desktop/course-done', { method: 'POST', body: { fid, done } });
+  if (!r.ok) {
+    console.error('[cloud] 更新完成状态失败：', r.error?.message);
+    return { ok: false, message: r.error?.message };
+  }
+  return { ok: true };
+}
+
 /** 单条保存学员（新增/更新）——服务器按 fid 逐条 upsert，不覆盖服务器其他学员（增删改查针对服务器） */
 export async function saveStudent(student: IStudent): Promise<boolean> {
   const r = await api('/api/desktop/students', { method: 'POST', body: { student } });

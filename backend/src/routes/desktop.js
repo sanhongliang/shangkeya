@@ -485,6 +485,50 @@ router.post('/course-delete', async (req, res) => {
   }
 });
 
+// POST /api/desktop/course-done → 单条课次完成状态（教师端「确认完成 / 取消完成」立即写服务器，
+// 不必等整包 sync，避免“点完立刻刷新又被云端旧值覆盖”）
+router.post('/course-done', async (req, res) => {
+  const org = req.user.org_id ?? 1;
+  const uid = req.user.uid;
+  const fid = (req.body ?? {}).fid;
+  const done = (req.body ?? {}).done === true;
+  if (!fid) return err(res, 'BAD_REQUEST', '缺少课程 fid', 400);
+  try {
+    const found = await query(
+      `SELECT id, status, payload->>'done' AS pdone, payload->>'_fid' AS cfid,
+              payload->'course'->>'id' AS pcid
+       FROM schedule WHERE (org_id = $1 AND owner_id = $2) OR teacher_id = $3`,
+      [org, uid, uid],
+    );
+    let row = null;
+    for (const r of found.rows) {
+      if (
+        (r.cfid && r.cfid === fid) ||
+        (r.pcid && r.pcid === fid) ||
+        `c-${r.id}` === fid ||
+        String(r.id) === String(fid)
+      ) {
+        row = r;
+        break;
+      }
+    }
+    if (!row) {
+      return err(res, 'NOT_FOUND', '课程不存在或课表刚同步过导致课次 id 变化，请刷新课表后重试', 404);
+    }
+    await query(
+      `UPDATE schedule SET status = $2,
+              payload = jsonb_set(jsonb_set(payload, '{done}', to_jsonb($3::boolean), true),
+                                  '{course,done}', to_jsonb($3::boolean), true),
+              updated_at = now()
+       WHERE id = $1`,
+      [row.id, done ? 'done' : 'scheduled', done],
+    );
+    return res.json({ ok: true, id: row.id, done });
+  } catch (e) {
+    err(res, 'DB_ERROR', '更新课程状态失败：' + (e?.message ?? e), 500);
+  }
+});
+
 // POST /api/desktop/students → 新增/更新单个学员（按 fid 逐条 upsert；服务器数据不被本地覆盖）
 router.post('/students', async (req, res) => {
   const org = req.user.org_id ?? 1;

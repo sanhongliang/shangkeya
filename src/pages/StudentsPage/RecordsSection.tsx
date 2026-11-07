@@ -28,6 +28,7 @@ import {
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScoreEntry, IStudent } from '@/data/types';
 import { api } from '@/api/client';
+import { setCourseDone } from '@/api/desktop';
 import { cn } from '@/lib/utils';
 import { pad2, toISO } from '@/lib/dates';
 
@@ -73,9 +74,16 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
     );
   }
 
-  const toggleDone = (id: string) => {
+  const toggleDone = async (id: string) => {
     const target = data.courses.find((c) => c.id === id);
-    const next = !target?.done;
+    if (!target) return;
+    const next = !target.done;
+    // 先写服务器（单条接口），成功才改本地；避免“点了立刻刷新又被云端旧值盖回去”
+    const r = await setCourseDone(target.id, next);
+    if (!r.ok) {
+      toast.error(r.message ?? '更新失败，请稍后重试');
+      return;
+    }
     setData((prev) => ({
       ...prev,
       courses: prev.courses.map((c) => (c.id === id ? { ...c, done: next } : c)),
