@@ -195,7 +195,15 @@ export default function SchedulePage() {
       return;
     }
     // 同步为“只增不删”，删除必须显式调服务器删除接口，否则刷新后会恢复
-    await api('/api/desktop/course-delete', { method: 'POST', body: { fid: selectedCourse.id } }).catch(() => undefined);
+    // 服务器删失败（已完成 / 已不存在 / 网络）时不能假装删成功：否则刷新就复活
+    const r = await api('/api/desktop/course-delete', {
+      method: 'POST',
+      body: { fid: selectedCourse.id },
+    });
+    if (!r.ok) {
+      toast.error(r.error?.message ?? '删除失败，请稍后重试');
+      return;
+    }
     setData((prev) => ({ ...prev, ...removeMatchingTemplate(prev, selectedCourse) }));
     setSelectedItemId(null);
     toast.success('课程已删除');

@@ -304,11 +304,19 @@ router.put('/sync', async (req, res) => {
         [org, uid],
       );
       const doneFids = new Set(doneRes.rows.map((r) => r.fid).filter(Boolean));
-      await client.query(
-        `DELETE FROM schedule WHERE org_id = $1 AND owner_id = $2
-         AND NOT (status = 'done' OR payload->>'done' = 'true')`,
+      // 本人名下的课次：按 fid 原地 UPDATE（保持行 id 不变——手机端/网页版持有的旧课次 id 不会失效）
+      const mineRes = await client.query(
+        `SELECT id, status, payload->>'_fid' AS cfid, payload->'course'->>'id' AS pcid
+         FROM schedule WHERE org_id = $1 AND owner_id = $2`,
         [org, uid],
       );
+      const byFid = new Map();
+      for (const r of mineRes.rows) {
+        if (r.cfid) byFid.set(String(r.cfid), r);
+        if (r.pcid && !byFid.has(String(r.pcid))) byFid.set(String(r.pcid), r);
+        if (!byFid.has(`c-${r.id}`)) byFid.set(`c-${r.id}`, r);
+      }
+      const keptFids = new Set();
       // 学校排给该老师的课（owner 非本账号、teacher_id 指向本老师）——老师端只读显示，不写副本，防止双写重复
       const schoolCourseRes = await client.query(
         `SELECT id, payload->>'_fid' AS cfid, 'c-' || id AS cid, status, payload->>'done' AS pdone FROM schedule
@@ -344,6 +352,9 @@ router.put('/sync', async (req, res) => {
       for (const c of b.courses ?? []) {
         const row = courseToRow(c, sidMap);
         if (!row.student_id) continue;
+        // 本次提交里仍存在的课先登记：后面“本地已删除”的清理只能删没人提交的课
+        if (c?.id) keptFids.add(String(c.id));
+        if (row?.payload?._fid) keptFids.add(String(row.payload._fid));
         // 学校排的课（teacher_id 指向本老师）不落副本；前端同 fid 重复只写一份
         if (schoolCourseFids.has(c.id) || schoolCourseFids.has(row.payload._fid)) continue;
         // 规则：学校学员的课老师不能排——老师自建课关联学校学员一律跳过（不入库，前端添加弹窗已禁用）
@@ -352,11 +363,37 @@ router.put('/sync', async (req, res) => {
         if (doneFids.has(c.id)) continue;
         if (seenCid.has(c.id)) continue;
         seenCid.add(c.id);
-        await client.query(
-          `INSERT INTO schedule (org_id, owner_id, student_id, start_at, end_at, status, payload)
-           VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-          [org, uid, row.student_id, row.start_at, row.end_at, row.status, JSON.stringify(row.payload)],
-        );
+        keptFids.add(String(c.id));
+        if (row.payload?._fid) keptFids.add(String(row.payload._fid));
+        const hit =
+          byFid.get(String(c.id)) ??
+          (row.payload?._fid ? byFid.get(String(row.payload._fid)) : undefined);
+        if (hit) {
+          // 已存在的课：原地更新，行 id 保持不变
+          if (hit.status === 'done') continue;
+          await client.query(
+            `UPDATE schedule SET student_id = $3, start_at = $4, end_at = $5, status = $6, payload = $7, updated_at = now()
+             WHERE id = $1 AND owner_id = $2`,
+            [hit.id, uid, row.student_id, row.start_at, row.end_at, row.status, JSON.stringify(row.payload)],
+          );
+        } else {
+          await client.query(
+            `INSERT INTO schedule (org_id, owner_id, student_id, start_at, end_at, status, payload)
+             VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+            [org, uid, row.student_id, row.start_at, row.end_at, row.status, JSON.stringify(row.payload)],
+          );
+        }
+      }
+      // 本地已删除（本次提交里没有）的未完成课 → 删除服务器行；已完成课保留
+      const goneIds = [];
+      for (const r of mineRes.rows) {
+        if (r.status === 'done') continue;
+        const keys = [r.cfid, r.pcid, `c-${r.id}`].filter(Boolean).map(String);
+        if (keys.some((k) => keptFids.has(k))) continue;
+        goneIds.push(r.id);
+      }
+      if (goneIds.length) {
+        await client.query('DELETE FROM schedule WHERE id = ANY($1::bigint[])', [goneIds]);
       }
 
       // 周课表模板——仅当前账号
@@ -419,19 +456,29 @@ router.post('/course-delete', async (req, res) => {
   if (!fid) return err(res, 'BAD_REQUEST', '缺少课程 fid', 400);
   try {
     const found = await query(
-      `SELECT id, status, payload->>'done' AS pdone, payload->>'_fid' AS cfid
+      `SELECT id, status, payload->>'done' AS pdone, payload->>'_fid' AS cfid,
+              payload->'course'->>'id' AS pcid
        FROM schedule WHERE (org_id = $1 AND owner_id = $2) OR teacher_id = $3`,
       [org, uid, uid],
     );
     let row = null;
     for (const r of found.rows) {
-      if ((r.cfid && r.cfid === fid) || `c-${r.id}` === fid) { row = r; break; }
+      if (
+        (r.cfid && r.cfid === fid) ||
+        (r.pcid && r.pcid === fid) ||
+        `c-${r.id}` === fid ||
+        String(r.id) === String(fid)
+      ) {
+        row = r;
+        break;
+      }
     }
-    if (!row) return err(res, 'NOT_FOUND', '课程不存在或已删除', 404);
+    if (!row) return err(res, 'NOT_FOUND', '课程不存在或已删除；若在别的端刚删过或课表刚同步过，请刷新后重试', 404);
     if (row.status === 'done' || row.pdone === 'true') {
-      return err(res, 'DONE_LOCKED', '已确认完成的课程不能删除', 403);
+      return err(res, 'DONE_LOCKED', '已确认完成的课程不能删除，请先取消完成', 403);
     }
-    await query('DELETE FROM schedule WHERE id = $1', [row.id]);
+    const del = await query('DELETE FROM schedule WHERE id = $1', [row.id]);
+    if (!del.rowCount) return err(res, 'NOT_FOUND', '课程不存在或已删除', 404);
     return res.json({ ok: true, deleted: 1 });
   } catch (e) {
     err(res, 'DB_ERROR', '删除失败：' + (e?.message ?? e), 500);

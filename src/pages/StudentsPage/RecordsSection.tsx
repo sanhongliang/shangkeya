@@ -541,14 +541,24 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
               className="bg-destructive text-white hover:bg-destructive/90"
               onClick={async () => {
                 // 同步为“只增不删”，删除必须显式调服务器接口，否则刷新后会恢复
+                // 只把服务器确认删除成功的行从本地移除，失败的如实报出来
+                const okIds: string[] = [];
+                const fails: string[] = [];
                 for (const cid of selectedIds) {
-                  await api('/api/desktop/course-delete', { method: 'POST', body: { fid: cid } }).catch(() => undefined);
+                  const r = await api('/api/desktop/course-delete', { method: 'POST', body: { fid: cid } });
+                  if (r.ok) okIds.push(cid);
+                  else fails.push(r.error?.message ?? '删除失败');
                 }
-                setData((prev) => ({
-                  ...prev,
-                  courses: prev.courses.filter((x) => !selectedIds.includes(x.id)),
-                }));
-                toast.success(`已删除 ${selectedIds.length} 条开课记录`);
+                if (okIds.length) {
+                  setData((prev) => ({
+                    ...prev,
+                    courses: prev.courses.filter((x) => !okIds.includes(x.id)),
+                  }));
+                  toast.success(`已删除 ${okIds.length} 条开课记录`);
+                }
+                if (fails.length) {
+                  toast.error(`${fails.length} 条未删除：${fails[0]}`);
+                }
                 setSelectedIds([]);
                 setDeleteMode(false);
               }}

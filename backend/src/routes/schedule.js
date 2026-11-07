@@ -102,22 +102,36 @@ router.put('/:id', async (req, res) => {
 });
 
 // DELETE /api/schedule/:id（已完成课程不可删除）
+// 能看到的课就能删：本人名下的 + 学校排给本人的（与老师端 /api/desktop/state 口径一致）
+// id 兼容三种形态：数字行 id、payload._fid（c-xxxx）、course.id
 router.delete('/:id', async (req, res) => {
-  const id = Number(req.params.id);
+  const raw = String(req.params.id ?? '');
+  const idNum = Number(raw);
+  const numeric = Number.isFinite(idNum) && idNum > 0;
+  const org = req.user.org_id ?? 1;
+  const uid = req.user.uid;
+  const scope = '((org_id = $1 AND owner_id = $2) OR teacher_id = $2)';
   try {
-    const r = await query(
-      `DELETE FROM schedule WHERE id = $1 AND org_id = $2 AND owner_id = $3
-       AND NOT (status = 'done' OR payload->>'done' = 'true')`,
-      [id, req.user.org_id ?? 1, req.user.uid],
-    );
-    if (!r.rowCount) {
-      // 区分：不存在 vs 已完成
-      const chk = await query('SELECT status FROM schedule WHERE id = $1 AND org_id = $2 AND owner_id = $3', [id, req.user.org_id ?? 1, req.user.uid]);
-      if (chk.rows[0] && (chk.rows[0].status === 'done' || chk.rows[0].payload?.done)) {
-        return err(res, 'FORBIDDEN', '已完成课程不能删除', 403);
-      }
-      return err(res, 'NOT_FOUND', '课次不存在', 404);
+    const found = numeric
+      ? await query(
+          `SELECT id, status, payload->>'done' AS pdone FROM schedule WHERE id = $3 AND ${scope}`,
+          [org, uid, idNum],
+        )
+      : await query(
+          `SELECT id, status, payload->>'done' AS pdone FROM schedule
+           WHERE ${scope}
+             AND (payload->>'_fid' = $3 OR payload->'course'->>'id' = $3 OR 'c-' || id = $3)`,
+          [org, uid, raw],
+        );
+    const row = found.rows[0];
+    if (!row) {
+      return err(res, 'NOT_FOUND', '这节课不存在，或课表刚同步过导致课次 id 变化，请刷新课表后再删', 404);
     }
+    if (row.status === 'done' || row.pdone === 'true') {
+      return err(res, 'FORBIDDEN', '已确认完成的课程不能删除，请先取消完成', 403);
+    }
+    const r = await query('DELETE FROM schedule WHERE id = $1', [row.id]);
+    if (!r.rowCount) return err(res, 'NOT_FOUND', '这节课不存在或已被删除', 404);
     res.json({ ok: true });
   } catch (e) {
     err(res, 'DB_ERROR', '删除课次失败：' + (e?.message ?? e), 500);
