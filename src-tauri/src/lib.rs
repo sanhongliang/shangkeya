@@ -7,26 +7,29 @@ use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 use tauri_plugin_dialog::DialogExt;
 
+/// 隐藏子进程的控制台窗口（CREATE_NO_WINDOW）。
+/// 不隐藏时每次 powershell / where / cmd 调用都会闪一个黑色控制台窗口；
+/// 探测多个 ProgID 时就会看到“窗口反复打开关闭”。
+#[cfg(target_os = "windows")]
+fn hide_console(cmd: &mut Command) {
+    use std::os::windows::process::CommandExt;
+    cmd.creation_flags(0x0800_0000);
+}
+#[cfg(not(target_os = "windows"))]
+fn hide_console(_cmd: &mut Command) {}
+
 /// 探测结果：前端设置页/课堂页展示可用转换器
 #[tauri::command]
 fn detect_ppt_converters() -> serde_json::Value {
     let soffice = find_soffice();
-    // macOS 的 Office / WPS 均不支持 COM 自动化，只有 LibreOffice 一条路
-    #[cfg(target_os = "macos")]
-    let (wps_ok, office_ok) = (false, false);
-    #[cfg(not(target_os = "macos"))]
-    let (wps_ok, office_ok) = (
-        com_progid_available("KWPP.Application") || com_progid_available("WPP.Application"),
-        com_progid_available("PowerPoint.Application"),
-    );
+    // 只读注册表，一次进程拿到全部 ProgID 状态（以前逐个 CreateObject 会把 WPS/Office 真启动起来）
+    let com = com_progid_map();
+    let has = |id: &str| *com.get(id).unwrap_or(&false);
+    let wps_ok = has("KWPP.Application") || has("WPP.Application");
+    let office_ok = has("PowerPoint.Application");
     // Word 侧单独探测：只装了 WPS 演示没装 WPS 文字，或只装了 PowerPoint 没装 Word 的情况都存在
-    #[cfg(target_os = "macos")]
-    let (wps_word, office_word) = (false, false);
-    #[cfg(not(target_os = "macos"))]
-    let (wps_word, office_word) = (
-        com_progid_available("KWPS.Application") || com_progid_available("WPS.Application"),
-        com_progid_available("Word.Application"),
-    );
+    let wps_word = has("KWPS.Application") || has("WPS.Application");
+    let office_word = has("Word.Application");
     serde_json::json!({
         "wps": wps_ok,
         "office": office_ok,
@@ -62,10 +65,10 @@ fn open_external(url: String) -> Result<(), String> {
     }
     #[cfg(not(target_os = "macos"))]
     {
-        Command::new("cmd")
-            .args(["/C", "start", "", &url])
-            .spawn()
-            .map_err(|e| format!("打开链接失败: {e}"))?;
+        let mut cmd = Command::new("cmd");
+        cmd.args(["/C", "start", "", &url]);
+        hide_console(&mut cmd);
+        cmd.spawn().map_err(|e| format!("打开链接失败: {e}"))?;
     }
     Ok(())
 }
@@ -101,9 +104,12 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
     // ①② WPS / MS Office COM（仅非 macOS：macOS 的 Office / WPS 不支持 COM 自动化）
     #[cfg(not(target_os = "macos"))]
     {
+        // 只探测一次（只读注册表、隐藏控制台），避免每次转换都去启动转换器“试探”
+        let com = com_progid_map();
+        let has = |id: &str| *com.get(id).unwrap_or(&false);
         if is_word {
             for progid in ["KWPS.Application", "WPS.Application"] {
-                if com_progid_available(progid) {
+                if has(progid) {
                     let r = convert_via_word_com(progid, src, out.as_path());
                     if r.is_ok()
                         && out.exists()
@@ -114,7 +120,7 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
                     let _ = std::fs::remove_file(&out);
                 }
             }
-            if com_progid_available("Word.Application") {
+            if has("Word.Application") {
                 let r = convert_via_word_com("Word.Application", src, out.as_path());
                 if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
                 {
@@ -124,7 +130,7 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
             }
         } else {
             for progid in ["KWPP.Application", "WPP.Application"] {
-                if com_progid_available(progid) {
+                if has(progid) {
                     let r = convert_via_com(progid, src, out.as_path());
                     if r.is_ok()
                         && out.exists()
@@ -135,7 +141,7 @@ fn convert_ppt(src: &str) -> Result<PathBuf, String> {
                     let _ = std::fs::remove_file(&out);
                 }
             }
-            if com_progid_available("PowerPoint.Application") {
+            if has("PowerPoint.Application") {
                 let r = convert_via_com("PowerPoint.Application", src, out.as_path());
                 if r.is_ok() && out.exists() && out.metadata().map(|m| m.len() > 0).unwrap_or(false)
                 {
@@ -175,17 +181,22 @@ fn convert_via_com(progid: &str, src: &str, out: &Path) -> Result<(), String> {
 $ErrorActionPreference = 'Stop'
 $app = New-Object -ComObject $env:SKY_PROGID
 $doc = $null
+$before = 0
 try {
+  try { $before = $app.Presentations.Count } catch {}
   try { $app.Visible = $false } catch {}
+  try { $app.DisplayAlerts = 0 } catch {}
+  try { $app.WindowState = 2 } catch {}
   $doc = $app.Presentations.Open($env:SKY_SRC, $true, $false, $false)
   try { $doc.SaveAs($env:SKY_OUT, 32) }
   catch { $doc.ExportAsFixedFormat($env:SKY_OUT, 2) }
   $doc.Close()
-  $app.Quit()
+  # 只有原本没有任何演示文稿时才退出整个应用：否则会连带关掉用户正在编辑的文档
+  if ($before -eq 0) { try { $app.Quit() } catch {} }
   exit 0
 } catch {
   try { if ($doc) { $doc.Close() } } catch {}
-  try { $app.Quit() } catch {}
+  if ($before -eq 0) { try { $app.Quit() } catch {} }
   exit 1
 }
 "#;
@@ -198,6 +209,7 @@ try {
         .env("SKY_SRC", src)
         .env("SKY_OUT", out.to_string_lossy().into_owned())
         .env("SKY_TMP", std::env::temp_dir().to_string_lossy().into_owned());
+    hide_console(&mut cmd);
     let ok = run_with_timeout(&mut cmd, 90).map_err(|e| format!("COM 转换失败（{progid}）: {e}"))?;
     if ok {
         Ok(())
@@ -217,15 +229,23 @@ $ErrorActionPreference = 'Stop'
 $app = New-Object -ComObject $env:SKY_PROGID
 $doc = $null
 $ok = $false
+$before = 0
 try {
+  try { $before = $app.Documents.Count } catch {}
   try { $app.Visible = $false } catch {}
-  $doc = $app.Documents.Open($env:SKY_SRC)
+  try { $app.DisplayAlerts = 0 } catch {}
+  try { $app.WindowState = 2 } catch {}
+  $m = [System.Reflection.Missing]::Value
+  # 第 12 个参数 Visible=$false，否则 Word / WPS 文字会把文档窗口真的显示出来
+  try { $doc = $app.Documents.Open($env:SKY_SRC, $false, $true, $false, $m, $m, $m, $m, $m, $m, $m, $false) } catch { $doc = $null }
+  if (-not $doc) { $doc = $app.Documents.Open($env:SKY_SRC) }
   try { $doc.SaveAs2($env:SKY_OUT, 17); $ok = $true } catch {}
   if (-not $ok) { try { $doc.SaveAs($env:SKY_OUT, 17); $ok = $true } catch {} }
   if (-not $ok) { try { $doc.ExportAsFixedFormat($env:SKY_OUT, 17); $ok = $true } catch {} }
 } catch {}
 try { if ($doc) { $doc.Close(0) } } catch {}
-try { $app.Quit() } catch {}
+# 只有原本没有任何文档时才退出整个应用：否则会连带关掉用户正在编辑的文档
+if ($before -eq 0) { try { $app.Quit() } catch {} }
 if ($ok) { exit 0 } else { exit 1 }
 "#;
     let mut cmd = Command::new("powershell");
@@ -237,6 +257,7 @@ if ($ok) { exit 0 } else { exit 1 }
         .env("SKY_SRC", src)
         .env("SKY_OUT", out.to_string_lossy().into_owned())
         .env("SKY_TMP", std::env::temp_dir().to_string_lossy().into_owned());
+    hide_console(&mut cmd);
     let ok = run_with_timeout(&mut cmd, 90).map_err(|e| format!("COM 转换失败（{progid}）: {e}"))?;
     if ok {
         Ok(())
@@ -269,6 +290,8 @@ fn convert_via_soffice(soffice: &Path, src: &str, out: &Path) -> Result<(), Stri
         .arg("--outdir")
         .arg(outdir)
         .arg(src);
+    // soffice.com 是控制台程序，不隐藏会闪一个黑框
+    hide_console(&mut cmd);
     let ok = run_with_timeout(&mut cmd, 120)
         .map_err(|e| format!("无法启动 LibreOffice: {e}"))?;
     if !ok {
@@ -318,42 +341,59 @@ fn run_with_timeout(cmd: &mut Command, secs: u64) -> Result<bool, String> {
     }
 }
 
-/// 探测 COM ProgID 是否已注册（仅非 macOS）
-#[cfg(not(target_os = "macos"))]
-fn com_progid_available(progid: &str) -> bool {
-    for root in ["HKLM:\\SOFTWARE\\Classes", "HKCU:\\SOFTWARE\\Classes"] {
-        let test = format!("{}\\{}", root, progid);
-        let status = Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                &format!("Test-Path '{test}'"),
-            ])
-            .output();
-        if let Ok(o) = status {
-            if String::from_utf8_lossy(&o.stdout).trim() == "True" {
-                return true;
+/// 一次性探测所有相关 COM ProgID 是否注册。
+/// 只读注册表、只起一个隐藏窗口的进程，绝不 CreateObject：
+/// 以前逐个 New-Object 探测会把 WPS / Office 真正启动再退出，用户看到的就是窗口反复开关。
+fn com_progid_map() -> std::collections::HashMap<String, bool> {
+    // 进程内缓存：探测结果运行期不会变（新装 WPS/Office 需重启应用），
+    // 也算掉每次打开课件都再等一次 PowerShell 冷启动。
+    static CACHE: std::sync::OnceLock<std::collections::HashMap<String, bool>> =
+        std::sync::OnceLock::new();
+    CACHE
+        .get_or_init(|| {
+            const IDS: [&str; 6] = [
+                "KWPP.Application",
+                "WPP.Application",
+                "PowerPoint.Application",
+                "KWPS.Application",
+                "WPS.Application",
+                "Word.Application",
+            ];
+            let mut map: std::collections::HashMap<String, bool> =
+                IDS.iter().map(|id| (id.to_string(), false)).collect();
+            if cfg!(target_os = "macos") {
+                return map;
             }
-        }
-    }
-    // 兼容：直接尝试创建 COM 对象
-    let status = Command::new("powershell")
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            &format!(
-                "try {{ $null = New-Object -ComObject {progid}; 'True' }} catch {{ 'False' }}"
-            ),
-        ])
-        .output();
-    if let Ok(o) = status {
-        if String::from_utf8_lossy(&o.stdout).trim() == "True" {
-            return true;
-        }
-    }
-    false
+            // 直接走 .NET 注册表 API：比 Test-Path 走 PowerShell provider 快，
+            // 且全程只读、不创建任何 COM 对象（不会把 WPS / Office 启动起来）。
+            let script = r#"
+$ids = @('KWPP.Application','WPP.Application','PowerPoint.Application','KWPS.Application','WPS.Application','Word.Application')
+$lm = [Microsoft.Win32.Registry]::LocalMachine
+$cu = [Microsoft.Win32.Registry]::CurrentUser
+foreach ($id in $ids) {
+  $hit = 0
+  foreach ($h in @($lm, $cu)) {
+    $k = $h.OpenSubKey('SOFTWARE\Classes\' + $id)
+    if ($k) { $hit = 1; $k.Close(); break }
+  }
+  Write-Output ($id + '=' + $hit)
+}
+"#;
+            let mut cmd = Command::new("powershell");
+            cmd.args(["-NoProfile", "-NonInteractive", "-Command", script]);
+            hide_console(&mut cmd);
+            if let Ok(o) = cmd.output() {
+                for line in String::from_utf8_lossy(&o.stdout).lines() {
+                    if let Some((k, v)) = line.trim().split_once('=') {
+                        if let Some(slot) = map.get_mut(k.trim()) {
+                            *slot = v.trim() == "1";
+                        }
+                    }
+                }
+            }
+            map
+        })
+        .clone()
 }
 
 /// 探测 LibreOffice 可执行文件（打包兜底目录 → 常见安装路径 → PATH）
@@ -428,7 +468,10 @@ fn find_soffice() -> Option<PathBuf> {
     let finder = "which";
     #[cfg(not(target_os = "macos"))]
     let finder = "where";
-    let status = Command::new(finder).arg("soffice").output().ok()?;
+    let mut wcmd = Command::new(finder);
+    wcmd.arg("soffice");
+    hide_console(&mut wcmd);
+    let status = wcmd.output().ok()?;
     if status.status.success() {
         let first = String::from_utf8_lossy(&status.stdout)
             .lines()
