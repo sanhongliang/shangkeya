@@ -73,3 +73,6 @@ vite-dev.log
 # Icon backups
 *.bak
 *.tinybak
+
+# pdf.js worker（构建时由 scripts/patch-pdf-worker.mjs 生成，不入库）
+/public/pdf.worker.patched.*.mjs

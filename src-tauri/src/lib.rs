@@ -1105,6 +1105,64 @@ fn start_window_drag(app: tauri::AppHandle, label: String) -> Result<(), String>
     }
 }
 
+/// 把前端拿到的文件字节落到临时文件，返回绝对路径。
+/// macOS 上用 HTML input 选文件（原生对话框在部分 Mac 上回调不触发会导致界面卡住），
+/// input 只能拿到 File 对象、没有路径，而 PPT/Word 转换需要真实路径，所以先落盘再转换。
+#[tauri::command]
+fn save_temp_for_convert(name: String, bytes: Vec<u8>) -> Result<String, String> {
+    let dir = std::env::temp_dir().join("shangkeya_cw_in");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建临时目录失败: {e}"))?;
+    let safe: String = name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '.' || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let path = dir.join(format!("{}_{}", std::process::id(), safe));
+    std::fs::write(&path, bytes).map_err(|e| format!("写入临时文件失败: {e}"))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// 缺少文档转换器时的安装引导：用系统原生消息框提示。
+/// 页面内的 Dialog 会渲染在课堂窗口里，而课堂窗口在 macOS 上被其子窗口（黑板 /
+/// 添加课件弹窗）覆盖，用户完全看不到；原生消息框一定在最前面，点了才消失。
+#[tauri::command]
+async fn show_converter_guide(app: tauri::AppHandle, platform: String) -> Result<bool, String> {
+    use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogKind};
+    let content = if platform == "macos" {
+        "添加 PPT / Word 课件需要先把文档转成 PDF，但本机没有找到可用的转换器。\n\n\
+         办法一：安装免费的 LibreOffice，装好后重启上课鸭再添加；\n\
+         办法二：用 Keynote / PowerPoint / WPS 把课件另存为 PDF，再直接添加 PDF。"
+    } else {
+        "添加 PPT / Word 课件需要先把文档转成 PDF，但本机没有找到可用的转换器。\n\n\
+         办法一：安装 WPS 或 Office，或免费的 LibreOffice，装好后重启上课鸭再添加；\n\
+         办法二：先用 WPS / Office 把课件另存为 PDF，再直接添加 PDF。"
+    };
+    let (tx, rx) = std::sync::mpsc::channel::<bool>();
+    app.dialog()
+        .message(content)
+        .title("未找到可用的文档转换器")
+        .kind(MessageDialogKind::Warning)
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "打开 LibreOffice 下载页".to_string(),
+            "关闭".to_string(),
+        ))
+        .show(move |open| {
+            let _ = tx.send(open);
+        });
+    let open = rx.recv().unwrap_or(false);
+    if open {
+        let _ = open_external(
+            "https://www.libreoffice.org/download/download-libreoffice/".to_string(),
+        );
+    }
+    Ok(open)
+}
+
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -1169,6 +1227,8 @@ pub fn run() {
             raise_window,
             raise_above,
             pick_courseware_dialog,
+            save_temp_for_convert,
+            show_converter_guide,
             reload_webview,
             open_devtools,
             close_webview,

@@ -286,6 +286,7 @@ export default function ClassroomPage() {
   const [tauriMode] = useState<boolean>(
     () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window,
   );
+  // 桌面端（Tauri）：原生对话框选择课件文件（Windows 与 macOS 都走系统文件对话框）
   const [pptConverting, setPptConverting] = useState(false);
   // PPT 转换器缺失时的安装引导（不内置 LibreOffice，指引用户自行下载安装）
   const [loHelp, setLoHelp] = useState<{ open: boolean; platform: string; url: string }>({
@@ -2201,10 +2202,126 @@ export default function ClassroomPage() {
     toast.success('课件已删除');
   };
 
-  // 桌面端（Tauri）：原生对话框选择课件文件；选到 PPT 自动转换为 PDF
-  const pickingRef = useRef(false);
   // 选择文件后的字节读取 Promise：立即显示文件名、字节后台读取，添加时等待完成
   const pickedFilePromiseRef = useRef<Promise<File | null> | null>(null);
+  // 防重入：文件对话框已打开时忽略重复触发（避免同时打开多个对话框、最终重复添加课件）
+  const pickingRef = useRef(false);
+
+  // 转换器缺失的引导：桌面端必须用系统原生消息框——页面内 Dialog 渲染在课堂窗口里，
+  // 会被黑板/添加课件这些子窗口整块盖住（用户反馈：提示跑到黑板后边看不见，像是“卡住了”）；
+  // 网页版没有多窗口，仍用页面内 Dialog。
+  const showConverterGuide = async (platform: string, url: string) => {
+    if (tauriMode) {
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        void invoke('show_converter_guide', { platform });
+        return;
+      } catch {
+        /* 原生框失败就退回页面内 Dialog */
+      }
+    }
+    setLoHelp({ open: true, platform, url });
+  };
+
+  // PPT / Word → PDF（桌面端）：先探测本机转换器，缺了就弹安装引导；
+  // 转换成功后把 PDF 设为已选文件，等用户点「添加」确认入库。
+  // 路径来源两种：Windows 原生对话框直接给路径；Mac 用 HTML input 拿 File，
+  // 先落临时文件（save_temp_for_convert）再转换。
+  const convertOfficeToPdf = async (
+    srcPath: string,
+    displayName: string,
+  ): Promise<File | null> => {
+    const isWord = /\.docx?$/i.test(displayName);
+    let conv: {
+      wps?: boolean;
+      office?: boolean;
+      wpsWord?: boolean;
+      officeWord?: boolean;
+      libreoffice?: boolean;
+      platform?: string;
+      downloadUrl?: string;
+    } | null = null;
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      conv = await invoke('detect_ppt_converters');
+    } catch {
+      conv = null;
+    }
+    const hasConv = conv
+      ? isWord
+        ? !!(conv.wpsWord || conv.officeWord || conv.libreoffice)
+        : !!(conv.wps || conv.office || conv.libreoffice)
+      : true;
+    if (conv && !hasConv) {
+      await showConverterGuide(
+        String(conv.platform ?? 'windows'),
+        String(conv.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
+      );
+      // 添加课件弹窗自己也留一条提示：它在黑板之上，用户一定看得到
+      void emitSafe('addcw:state', {
+        converting: false,
+        error: '未找到可用的文档转换器，已弹出安装引导',
+      });
+      return null;
+    }
+    setPptConverting(true);
+    void emitSafe('addcw:state', { converting: true });
+    try {
+      const { invoke } = await import('@tauri-apps/api/core');
+      const bytes = await invoke<number[]>('convert_ppt_to_pdf', { src: srcPath });
+      const name = displayName.replace(/\.(ppt|pptx|doc|docx)$/i, '.pdf');
+      const pdfFile = new File([new Uint8Array(bytes)], name, { type: 'application/pdf' });
+      setPickedFile(pdfFile);
+      pickedFilePromiseRef.current = Promise.resolve(pdfFile);
+      setNewName(name.replace(/\.pdf$/i, ''));
+      void emitSafe('addcw:state', { converting: false, pickedName: name });
+      return pdfFile;
+    } catch (e) {
+      const msg = String(e);
+      if (msg.includes('未找到可用')) {
+        await showConverterGuide(
+          String(conv?.platform ?? 'windows'),
+          String(conv?.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
+        );
+      }
+      toast.error(`文档转换失败：${msg}`);
+      void emitSafe('addcw:state', { converting: false, error: `文档转换失败：${msg}` });
+      return null;
+    } finally {
+      setPptConverting(false);
+    }
+  };
+
+  // HTML input（网页版 / macOS）选到文件后的处理：
+  // 普通文件直接用 File；PPT/Word 在桌面端先落临时文件再交本机转换器转 PDF
+  const handleCwFilePicked = async (f: File | null) => {
+    if (!f) return;
+    pickedFilePromiseRef.current = null;
+    if (tauriMode && /\.(ppt|pptx|doc|docx)$/i.test(f.name)) {
+      setPptConverting(true);
+      void emitSafe('addcw:state', { converting: true });
+      try {
+        const { invoke } = await import('@tauri-apps/api/core');
+        const bytes = new Uint8Array(await f.arrayBuffer());
+        const path = await invoke<string>('save_temp_for_convert', {
+          name: f.name,
+          bytes: Array.from(bytes),
+        });
+        await convertOfficeToPdf(path, f.name);
+      } catch (e) {
+        toast.error(`课件准备失败：${String(e)}`);
+        void emitSafe('addcw:state', { converting: false, error: String(e) });
+      } finally {
+        setPptConverting(false);
+      }
+      return;
+    }
+    setPickedFile(f);
+    setNewName(f.name.replace(/\.[^.]+$/, ''));
+    void emitSafe('addcw:state', { converting: false, pickedName: f.name });
+  };
+
+  // 桌面端（Tauri）：原生对话框选择课件文件（Windows 走原生对话框；Mac 走 HTML input）
   const pickCoursewareFile = async () => {
     // 防重入：文件对话框已打开时忽略重复触发（避免同时打开多个对话框、最终重复添加课件）
     if (pickingRef.current) return;
@@ -2252,63 +2369,8 @@ export default function ClassroomPage() {
       void restoreBoard();
       if (!sel) return;
       if (/\.(ppt|pptx|doc|docx)$/i.test(sel)) {
-        // PPT / Word 都先转成 PDF 再加载；转换器以「用户自行下载安装」为前提，先探测本机可用方案
-        // Windows 优先 WPS/Office（COM）：演示文稿走 WPS 演示/PowerPoint，Word 走 WPS 文字/Word
-        // macOS 的 Office/WPS 不支持 COM，只认 LibreOffice
-        const isWord = /\.docx?$/i.test(sel);
-        let conv: {
-          wps?: boolean;
-          office?: boolean;
-          wpsWord?: boolean;
-          officeWord?: boolean;
-          libreoffice?: boolean;
-          platform?: string;
-          downloadUrl?: string;
-        } | null = null;
-        try {
-          conv = await invoke('detect_ppt_converters');
-        } catch {
-          conv = null;
-        }
-        const hasConv = conv
-          ? isWord
-            ? !!(conv.wpsWord || conv.officeWord || conv.libreoffice)
-            : !!(conv.wps || conv.office || conv.libreoffice)
-          : true;
-        if (conv && !hasConv) {
-          setLoHelp({
-            open: true,
-            platform: String(conv.platform ?? 'windows'),
-            url: String(conv.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
-          });
-          void emitSafe('addcw:state', { converting: false });
-          return;
-        }
-        setPptConverting(true);
-        void emitSafe('addcw:state', { converting: true });
-        try {
-          const bytes = await invoke<number[]>('convert_ppt_to_pdf', { src: sel });
-          const name = sel.split(/[\\/]/).pop()!.replace(/\.(ppt|pptx|doc|docx)$/i, '.pdf');
-          const pdfFile = new File([new Uint8Array(bytes)], name, { type: 'application/pdf' });
-          // 转换成功 → 显示转换后的 PDF 文件名，等待用户点击「添加」确认入库（不自动添加）
-          setPickedFile(pdfFile);
-          pickedFilePromiseRef.current = Promise.resolve(pdfFile);
-          setNewName(name.replace(/\.pdf$/i, ''));
-          void emitSafe('addcw:state', { converting: false, pickedName: name });
-        } catch (e) {
-          const msg = String(e);
-          if (msg.includes('未找到可用')) {
-            setLoHelp({
-              open: true,
-              platform: String(conv?.platform ?? 'windows'),
-              url: String(conv?.downloadUrl ?? 'https://www.libreoffice.org/download/download-libreoffice/'),
-            });
-          }
-          toast.error(`文档转换失败：${msg}`);
-          void emitSafe('addcw:state', { converting: false, error: `文档转换失败：${msg}` });
-        } finally {
-          setPptConverting(false);
-        }
+        // PPT / Word 先转 PDF，再作为课件加载
+        await convertOfficeToPdf(sel, sel.split(/[\\/]/).pop() || sel);
         return;
       }
       // 非 PPT：立即显示文件名（从路径取，不等字节读取）；文件字节后台读取，
@@ -2351,8 +2413,14 @@ export default function ClassroomPage() {
         const deferred = await decodeTiffDeferred(await blob.arrayBuffer());
         tiffParseCacheRef.current.set(f.id, deferred);
       }
-    } catch {
-      /* 后台解析失败：点开时按常规重新解析 */
+    } catch (e) {
+      // 后台解析失败：点开时按常规重新解析；但要给一次明确提示，
+      // 否则用户只会看到课件条目一直是灰的、点了没反应
+      if (!/解析超时/.test(String(e))) {
+        toast.error(`PDF 解析失败：${String(e).replace(/^Error:\s*/, '')}`);
+      } else {
+        toast.error(`PDF 解析超时：${String(e).replace(/^Error:\s*/, '')}`);
+      }
     } finally {
       setParsingIds((prev) => {
         const next = new Set(prev);
@@ -2460,6 +2528,9 @@ export default function ClassroomPage() {
         >
           {/* 不带文件夹/文件图标；名称完整换行显示，显示不全时悬停浮层看全名 */}
           <TreeLabel text={n.name} />
+          {parsing && (
+            <span className="ml-1 shrink-0 text-[10px] text-muted-foreground">解析中…</span>
+          )}
         </button>
       );
     });
@@ -3348,9 +3419,8 @@ export default function ClassroomPage() {
               className="hidden"
               onChange={(e) => {
                 const f = e.target.files?.[0] ?? null;
-                setPickedFile(f);
-                if (f) setNewName(f.name.replace(/\.[^.]+$/, ''));
                 e.target.value = '';
+                void handleCwFilePicked(f);
               }}
             />
             <div className="space-y-1.5 pt-1">
