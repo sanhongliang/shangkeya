@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { DragEvent as ReactDragEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { emitSafe } from '@/lib/tauri-mode';
+import { contentOrigin } from '@/lib/win-geometry';
 import { emit, listen } from '@tauri-apps/api/event';
 import type { WebviewWindow as WebviewWindowType } from '@tauri-apps/api/webviewWindow';
 import {
@@ -1152,10 +1153,12 @@ export default function ClassroomPage() {
             if (typeof r.h === 'number' && r.h >= 120) winH = Math.round(r.h / scale);
           }
           if (!position) {
-            const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
+            // 用「内容区原点」而不是 innerPosition：macOS 上 innerPosition 返回的是
+            // 外框位置，会让窗口整体偏上一个标题栏高度（顶到标题栏）
+            const co = await contentOrigin(mw);
             position = {
-              x: Math.round(pos.x / scale + size.width / scale - winW - 20),
-              y: Math.round(pos.y / scale + size.height / scale - winH - 44),
+              x: Math.round(co.x / scale + co.innerW / scale - winW - 20),
+              y: Math.round(co.y / scale + co.innerH / scale - winH - 44),
             };
           }
         } catch {
@@ -1271,10 +1274,10 @@ export default function ClassroomPage() {
             }
           }
           if (!position) {
-            const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
+            const co = await contentOrigin(mw);
             position = {
-              x: Math.round(pos.x / scale + size.width / scale - 211 - 16),
-              y: Math.round(pos.y / scale + size.height / scale - 489 - 48),
+              x: Math.round(co.x / scale + co.innerW / scale - 211 - 16),
+              y: Math.round(co.y / scale + co.innerH / scale - 489 - 48),
             };
           }
         } catch {
@@ -1347,9 +1350,9 @@ export default function ClassroomPage() {
           throw new Error('no-saved');
         }
       } catch {
-        const [pos, size] = await Promise.all([mw.innerPosition(), mw.innerSize()]);
-        x = Math.round(pos.x / scale + (size.width / scale - winW) / 2);
-        y = Math.round(pos.y / scale + (size.height / scale - winH) / 2);
+        const co = await contentOrigin(mw);
+        x = Math.round(co.x / scale + (co.innerW / scale - winW) / 2);
+        y = Math.round(co.y / scale + (co.innerH / scale - winH) / 2);
       }
       const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
       const win = new WebviewWindow(label, {
@@ -1692,7 +1695,8 @@ export default function ClassroomPage() {
       // 默认打开位置/尺寸：直接按课堂占位区计算（与黑板页贴合逻辑一致），避免先出现在别处再跳
       const { getCurrentWindow } = await import('@tauri-apps/api/window');
       const mw = getCurrentWindow();
-      const [pos, scale] = await Promise.all([mw.innerPosition(), mw.scaleFactor()]);
+      const co = await contentOrigin(mw);
+      const scale = await mw.scaleFactor();
       const rect = boardPlaceholderRef.current?.getBoundingClientRect();
       // 统一按「逻辑像素」计算：innerPosition 是物理像素需除以 scale；rect 本身就是逻辑像素。
       // 窗口 x/y/width/height 均按逻辑像素解释，macOS Retina 上混用物理值会被系统夹到屏幕右下角。
@@ -1716,8 +1720,8 @@ export default function ClassroomPage() {
           wPx = Math.round(hPx * aspect);
         }
       }
-      const x = Math.round(pos.x / scale + (rect?.left ?? 0) + (zoneW - wPx) / 2);
-      const y = Math.round(pos.y / scale + (rect?.top ?? 0) + (zoneH - hPx) / 2);
+      const x = Math.round(co.x / scale + (rect?.left ?? 0) + (zoneW - wPx) / 2);
+      const y = Math.round(co.y / scale + (rect?.top ?? 0) + (zoneH - hPx) / 2);
       const win = new WebviewWindow('blackboard-canvas', {
         title: '上课鸭 · 黑板',
         width: wPx,
@@ -1813,12 +1817,13 @@ export default function ClassroomPage() {
         const { emit } = await import('@tauri-apps/api/event');
         const { getCurrentWindow } = await import('@tauri-apps/api/window');
         const mw = getCurrentWindow();
-        const ip = await mw.innerPosition();
+        // 内容区原点（物理像素）：macOS 上 innerPosition 是外框位置，用它会让黑板偏上
+        const co = await contentOrigin(mw);
         const scale = await mw.scaleFactor();
         const rect = boardPlaceholderRef.current?.getBoundingClientRect();
         void emitSafe('bc:winPos', {
-          ipX: ip.x,
-          ipY: ip.y,
+          ipX: co.x,
+          ipY: co.y,
           scale,
           rectLeft: rect?.left ?? 0,
           rectTop: rect?.top ?? 0,

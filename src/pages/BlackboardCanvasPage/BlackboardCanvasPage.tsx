@@ -260,7 +260,9 @@ export default function BlackboardCanvasPage() {
       await new Promise((r) => setTimeout(r, 250));
       try {
         const actual = await w.innerPosition();
-        if (Math.abs(actual.x - x) <= 20 && Math.abs(actual.y - y) <= 20) {
+        // 阈值 40px：macOS 标题栏 / 边框偏移可能到 28px，过严会把正常偏移当成“未稳定”丢弃，
+        // 导致黑板窗口永久偏上（顶到课堂窗口标题栏）
+        if (Math.abs(actual.x - x) <= 40 && Math.abs(actual.y - y) <= 40) {
           calibRef.current = { dx: actual.x - x, dy: actual.y - y, done: true };
         } else {
           calibRef.current = { dx: 0, dy: 0, done: true };
