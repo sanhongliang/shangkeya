@@ -808,6 +808,51 @@ export default function ClassroomPage() {
     }
   };
 
+  // 课堂能直接打开的课件类型（其它格式需要先在课件管理里转换）
+  const isCoursewarePath = (p: string) =>
+    /\.(pdf|tiff?|png|jpe?g|gif|webp|html?|mp4|webm|mov|avi|mkv|flv|wmv|m4v|mpg|mpeg|mp3|wav|m4a|flac|ogg|oga|aac|wma|opus)$/i.test(
+      p,
+    );
+
+  // 从桌面/资源管理器把文件拖进课堂窗口：Tauri 会接管系统级拖放并给出真实路径，
+  // 浏览器网页版拿不到本地路径（由 handleCoursewareDrop 处理窗口内拖拽），这里只覆盖桌面版
+  const addNodeRef = useRef(addLocalNodeToLesson);
+  addNodeRef.current = addLocalNodeToLesson;
+  useEffect(() => {
+    if (!tauriMode) return;
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void (async () => {
+      try {
+        const { getCurrentWebview } = await import('@tauri-apps/api/webview');
+        const wv = getCurrentWebview();
+        unlisten = await wv.onDragDropEvent((event) => {
+          if (event.payload.type !== 'drop') return;
+          const paths = event.payload.paths ?? [];
+          if (paths.length === 0) return;
+          const usable = paths.filter(isCoursewarePath);
+          if (usable.length === 0) {
+            toast.error('这些文件不能直接放课堂，支持 PDF/TIFF/图片/网页/音视频');
+            return;
+          }
+          for (const p of usable) {
+            const name = p.split(/[\\/]/).pop() || p;
+            addNodeRef.current({ name, path: p });
+          }
+          const skipped = paths.length - usable.length;
+          if (skipped > 0) toast.error(`已忽略 ${skipped} 个不支持的文件`);
+        });
+        if (disposed) unlisten();
+      } catch {
+        /* 当前环境不支持系统级拖放：忽略 */
+      }
+    })();
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
+  }, [tauriMode]);
+
   // 选中课件稳定标识：内容相同而引用变化（如云端合并/自动刷新重建 course.files 引用）时不重新加载，
   // 避免翻页过程中被触发重载 → 重置回第一页 → 加载中断显示黑板
   const selectedCwKey = selectedCw
@@ -1459,6 +1504,9 @@ export default function ClassroomPage() {
   // ── 黑板独立窗口：课堂页打开时自动创建无边框窗口，书写/课件加载/翻页/缩放都在窗口内 ──
   const boardWinRef = useRef<WebviewWindowType | null>(null);
   const boardWinCreatingRef = useRef(false);
+  // 最新黑板窗口模式：设置加载完成前 data 里可能是默认值，创建窗口是异步的，
+  // 建好那一刻要用这个 ref 复核，避免「课堂黑板一体」模式下仍冒出独立黑板窗口
+  const boardModeRef = useRef(data.settings.boardWindowMode);
   const [boardWinOk, setBoardWinOk] = useState(false);
   const boardPlaceholderRef = useRef<HTMLDivElement | null>(null);
   const [boardZoom, setBoardZoom] = useState(1);
@@ -1686,10 +1734,17 @@ export default function ClassroomPage() {
       });
       win.once('tauri://error', () => {
         boardWinCreatingRef.current = false;
-        toast.error('黑板窗口创建失败，已恢复为窗口内黑板');
+        if (boardModeRef.current === 'separate') {
+          toast.error('黑板窗口创建失败，已恢复为窗口内黑板');
+        }
       });
       win.once('tauri://created', () => {
         boardWinCreatingRef.current = false;
+        // 创建期间被切到「课堂黑板一体」：立即关掉这个刚建好的窗口，不再留独立黑板
+        if (boardModeRef.current !== 'separate') {
+          void win.close().catch(() => {});
+          return;
+        }
         boardWinRef.current = win;
         setBoardWinOk(true);
         // 窗口页面可能仍在加载：延迟补推一次，就绪握手兜底
@@ -1724,6 +1779,9 @@ export default function ClassroomPage() {
   // 由底部「黑板窗口」按钮手动重开，避免关闭课堂/黑板时被 effect 重新拉起）
   const autoCreatedRef = useRef(false);
   useEffect(() => {
+    boardModeRef.current = data.settings.boardWindowMode;
+    // 一体模式下把「已自动创建」标记归零：下次切回独立模式可正常自动打开
+    if (data.settings.boardWindowMode !== 'separate') autoCreatedRef.current = false;
     // 仅「独立黑板窗口」模式自动创建黑板窗口；「课堂黑板一体」模式黑板内嵌课堂占位区
     if (
       tauriMode &&
@@ -3028,7 +3086,7 @@ export default function ClassroomPage() {
                 </div>
                 {/* 树状图：随下拉联动显示当前学期下内容，根目录(第一层)默认展开；
                     高度随内容自适应（内容少就矮、超出侧栏才滚动），课件文件用蓝色与其他项区分 */}
-                <div className="max-h-full min-h-0 shrink-0 overflow-y-auto rounded-md border bg-muted/20">
+                <div className="min-h-0 shrink overflow-y-auto rounded-md border bg-muted/20">
                   <div className="space-y-0.5 p-1.5">
                     {!impTree ? (
                       <p className="py-4 text-center text-xs text-muted-foreground">

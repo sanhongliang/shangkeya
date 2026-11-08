@@ -31,8 +31,8 @@ export function openClassroomWindow(query: string): void {
             title: '上课鸭-课堂',
             width: 1280,
             height: 800,
-            minWidth: 960,
-            minHeight: 640,
+            minWidth: 800,
+            minHeight: 600,
             resizable: true,
             center: true,
           });
