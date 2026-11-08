@@ -527,7 +527,7 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
         open={monthOpen}
         onOpenChange={setMonthOpen}
         studentName={student.name}
-        courses={data.courses}
+        courses={courses}
       />
 
       <AlertDialog open={confirmDeleteOpen} onOpenChange={setConfirmDeleteOpen}>

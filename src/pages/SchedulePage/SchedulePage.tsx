@@ -497,14 +497,16 @@ export default function SchedulePage() {
           ) : (
             /* ===== 周课表：时间网格 ===== */
             <>
+              {/* 表头 + 网格整体加一圈外框，保证左/上/右/下四条边线都画出来 */}
+              <div className="flex min-h-0 flex-1 flex-col border border-border">
               {/* 表头 */}
-              <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, 1fr)' }}>
-                <div />
+              <div className="grid shrink-0" style={{ gridTemplateColumns: '56px repeat(7, minmax(0, 1fr))' }}>
+                <div className="border-b border-r" />
                 {WEEKDAY_LABELS.map((w, i) => (
                   <div
                     key={w}
                     className={cn(
-                      'border-b py-1.5 text-center text-sm font-medium',
+                      'border-b border-r py-1.5 text-center text-sm font-medium',
                       toISO(weekDates[i]) === todayStr && 'text-primary',
                     )}
                   >
@@ -519,7 +521,7 @@ export default function SchedulePage() {
                   <div
                     className="absolute inset-0 grid"
                     style={{
-                      gridTemplateColumns: '56px repeat(7, 1fr)',
+                      gridTemplateColumns: '56px repeat(7, minmax(0, 1fr))',
                       gridTemplateRows: `repeat(${HOUR_COUNT}, ${SLOT_H}px)`,
                     }}
                   >
@@ -527,7 +529,7 @@ export default function SchedulePage() {
                       const hour = HOUR_START + hi;
                       return (
                         <Fragment key={hour}>
-                          <div className="border-b pr-2 text-right text-xs leading-[48px] text-black">
+                          <div className="border-b border-r pr-2 text-right text-xs leading-[48px] text-black">
                             {pad2(hour)}:00
                           </div>
                           {WEEKDAY_LABELS.map((_, di) => (
@@ -587,6 +589,7 @@ export default function SchedulePage() {
                     </div>
                   ))}
                 </div>
+              </div>
               </div>
             </>
           )}
