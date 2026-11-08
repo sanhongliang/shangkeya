@@ -5,7 +5,6 @@ import {
   ChevronRight,
   Download,
   FileText,
-  Folder,
   FolderOpen,
   Loader2,
   Plus,
@@ -36,6 +35,7 @@ import {
 } from '@/lib/courseware-files';
 import { decodeTiffToFrames } from '@/lib/tiff-frames';
 import { cn } from '@/lib/utils';
+import TreeLabel from '@/components/TreeLabel';
 
 /** Tauri import_courseware_dir 返回结构（版本 → 年级 → 学期 → 章节/文件） */
 interface ImportedNode {
@@ -513,8 +513,7 @@ export default function CoursewarePage() {
                 vOpen && 'rotate-90',
               )}
             />
-            <Folder className="h-4 w-4 shrink-0 text-warning" />
-            <span className="truncate">{ver.version}</span>
+            <TreeLabel text={ver.version} />
           </button>
           {vOpen &&
             ver.grades.map((g) => {
@@ -534,8 +533,7 @@ export default function CoursewarePage() {
                         gOpen && 'rotate-90',
                       )}
                     />
-                    <Folder className="h-4 w-4 shrink-0 text-warning" />
-                    <span className="truncate">{g.grade}</span>
+                    <TreeLabel text={g.grade} />
                   </button>
                   {gOpen &&
                     g.semesters.map((s) => {
@@ -555,8 +553,7 @@ export default function CoursewarePage() {
                                 sOpen && 'rotate-90',
                               )}
                             />
-                            <Folder className="h-4 w-4 shrink-0 text-warning" />
-                            <span className="truncate">{s.semester}</span>
+                            <TreeLabel text={s.semester} />
                           </button>
                           {sOpen && renderImported(s.nodes, depth + 3, sKey)}
                         </div>
@@ -593,20 +590,15 @@ export default function CoursewarePage() {
               }
             }}
           >
-            {isFolder ? (
-              <>
-                <ChevronRight
-                  className={cn(
-                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
-                    open && 'rotate-90',
-                  )}
-                />
-                <Folder className="h-4 w-4 shrink-0 text-warning" />
-              </>
-            ) : (
-              <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
+            {isFolder && (
+              <ChevronRight
+                className={cn(
+                  'h-4 w-4 shrink-0 text-muted-foreground transition-transform',
+                  open && 'rotate-90',
+                )}
+              />
             )}
-            <span className="truncate">{n.name}</span>
+            <TreeLabel text={n.name} />
           </button>
           {isFolder && open ? renderImported(n.children!, depth + 1, key) : null}
         </div>
@@ -628,12 +620,7 @@ export default function CoursewarePage() {
           style={{ paddingLeft: 8 + depth * 16 }}
           onClick={() => (n.type === 'folder' ? setSelBrowserNode(n) : void previewBrowserNode(n))}
         >
-          {n.type === 'folder' ? (
-            <Folder className="h-4 w-4 shrink-0 text-warning" />
-          ) : (
-            <FileText className="h-4 w-4 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{n.name}</span>
+          <TreeLabel text={n.name} />
         </button>
         {n.children ? renderBrowserTree(n.children, depth + 1) : null}
       </div>
