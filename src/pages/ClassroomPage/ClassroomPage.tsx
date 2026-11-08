@@ -3192,9 +3192,13 @@ export default function ClassroomPage() {
                   </Button>
                 </div>
 
-                {/* 当前打开课件页码表：至少留 2 行可见高度，页数多时在本区域内纵向滚动 */}
-                <div className="mb-[15px] min-h-[104px] flex-[3] overflow-y-auto overscroll-contain rounded-md border bg-muted/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar]:w-2">
-                  <div className="p-1.5">
+                {/* 当前打开课件页码表：页数多时在本区域内纵向滚动（滚动条 8px 常显）；
+                    底部留出 25vh 空白，把整块页码区抬到答案窗口遮挡范围之上，
+                    被答案窗口盖住的只是这段空白，页码与滚动条始终看得见 */}
+                <div className="mb-[25vh] min-h-[104px] flex-[3] overflow-y-auto overscroll-contain rounded-md border bg-muted/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar]:w-2">
+                  {/* 底部留一段空白：答案窗口常压在侧栏下部，留白让页码矩阵能继续向下滚，
+                      滚到底时被挡住的位置只剩空白/最后一行页码，上面的行都能露出来 */}
+                  <div className="p-1.5 pb-[320px]">
                     <p className="mb-1 text-[13px] text-foreground">
                       当前打开课件页码
                     </p>
