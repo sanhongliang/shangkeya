@@ -251,24 +251,24 @@ export default function HomePage() {
                           {c.start}-{formatEnd(c.start, c.durationMin)}（{c.durationMin}min）
                         </span>
                       </div>
-                      <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1 text-xs text-muted-foreground">
-                        <span className="flex min-w-0 items-start gap-1">
-                          <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                          备课：
+                      <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
+                        <span className="flex min-w-0 flex-1 items-center gap-1">
+                          <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                          <span className="shrink-0">备课：</span>
                           {courseFilesLabel(c) ? (
                             <span
-                              className="min-w-0 whitespace-normal break-all font-medium text-success"
+                              className="min-w-0 truncate font-medium text-success"
                               title={courseFilesLabel(c)}
                             >
                               {courseFilesLabel(c)}
                             </span>
                           ) : (
-                            <span>未备</span>
+                            <span className="shrink-0">未备</span>
                           )}
                         </span>
                         <span
                           className={cn(
-                            'flex items-center gap-1',
+                            'flex shrink-0 items-center gap-1',
                             c.done ? 'font-medium text-success' : 'text-muted-foreground',
                           )}
                         >
@@ -280,7 +280,7 @@ export default function HomePage() {
                           {c.done ? '已完成' : '待上课'}
                         </span>
                         {c.summary?.content && (
-                          <span className="flex items-center gap-1">
+                          <span className="flex shrink-0 items-center gap-1">
                             <FileText className="h-3.5 w-3.5" />
                             已有总结
                           </span>

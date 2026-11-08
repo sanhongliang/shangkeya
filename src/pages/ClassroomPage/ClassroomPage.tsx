@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import type { DragEvent as ReactDragEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { emitSafe } from '@/lib/tauri-mode';
 import { emit, listen } from '@tauri-apps/api/event';
@@ -713,20 +714,34 @@ export default function ClassroomPage() {
         <div key={key}>
           <button
             type="button"
+            draggable={!isFolder}
             className={cn(
               'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors',
               isFolder
-                ? 'text-foreground hover:bg-muted'
+                ? 'text-muted-foreground hover:bg-muted'
                 : selImpNode === n
                   ? 'bg-accent font-medium text-primary'
-                  : 'text-foreground hover:bg-muted',
+                  : 'text-sky-600 hover:bg-muted',
             )}
             style={{ paddingLeft: 8 + depth * 12 }}
+            onDragStart={(e) => {
+              if (isFolder) return;
+              const payload = JSON.stringify({ name: n.name, path: n.path });
+              e.dataTransfer.setData('application/x-shangkeya-courseware', payload);
+              e.dataTransfer.setData('text/plain', n.name);
+              e.dataTransfer.effectAllowed = 'copy';
+            }}
+            onDragOver={(e) => {
+              if (!isFolder) e.preventDefault();
+            }}
             onClick={() => {
               if (isFolder) toggleImp(key, open);
               else {
                 setSelImpNode((prev) => (prev === n ? null : n));
               }
+            }}
+            onDoubleClick={() => {
+              if (!isFolder) addLocalNodeToLesson(n);
             }}
           >
             {isFolder && (
@@ -748,15 +763,14 @@ export default function ClassroomPage() {
       );
     });
 
-  /** 加入课堂：把选中的本机课件加入本课课件列表（不打开到黑板；未选中时按钮置灰） */
-  const addToClassroom = () => {
-    if (!selImpNode) {
-      toast.error('请先在目录树中选择课件');
-      return;
-    }
-    const node = selImpNode;
+  /** 把一份本机课件加入本课课件列表（「加入课堂」按钮、双击、拖拽到课堂都走这里；不打开到黑板） */
+  const addLocalNodeToLesson = (node: { name: string; path: string }) => {
     const mime = mimeForFile(node.name);
     const id = `local-${node.path}`;
+    if (localLessonIds.includes(id)) {
+      toast.success(`该课件已在课堂里：${node.name}`);
+      return;
+    }
     localNodeCacheRef.current.set(id, {
       id,
       name: node.name,
@@ -769,6 +783,28 @@ export default function ClassroomPage() {
     if (/\.(pdf|tiff?)$/i.test(node.name)) {
       const cached = localNodeCacheRef.current.get(id);
       if (cached) void preparseCourseware(cached);
+    }
+  };
+
+  /** 加入课堂：把选中的本机课件加入本课课件列表（未选中时按钮置灰） */
+  const addToClassroom = () => {
+    if (!selImpNode) {
+      toast.error('请先在目录树中选择课件');
+      return;
+    }
+    addLocalNodeToLesson(selImpNode);
+  };
+
+  /** 拖拽到课堂：拖进来的本机课件直接加入本课课件列表 */
+  const handleCoursewareDrop = (e: ReactDragEvent) => {
+    const raw = e.dataTransfer.getData('application/x-shangkeya-courseware');
+    if (!raw) return;
+    e.preventDefault();
+    try {
+      const n = JSON.parse(raw) as { name?: string; path?: string };
+      if (n.name && n.path) addLocalNodeToLesson({ name: n.name, path: n.path });
+    } catch {
+      /* 非法拖拽数据忽略 */
     }
   };
 
@@ -2371,7 +2407,17 @@ export default function ClassroomPage() {
     });
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-background">
+    <div
+      className="flex h-screen flex-col overflow-hidden bg-background"
+      onDragOver={(e) => {
+        // 本机目录里的课件拖进课堂窗口：允许放置（课件加入本课课件列表）
+        if (e.dataTransfer.types.includes('application/x-shangkeya-courseware')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={handleCoursewareDrop}
+    >
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* 左侧书写工具栏：距窗口左边 9px；右侧分界线独立、距工具栏右缘 5px */}
         <div className="ml-[9px] flex shrink-0">
@@ -2980,8 +3026,9 @@ export default function ClassroomPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                {/* 树状图：随下拉联动显示当前学期下内容，根目录(第一层)默认展开；自适应窗口高度 */}
-                <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-muted/20">
+                {/* 树状图：随下拉联动显示当前学期下内容，根目录(第一层)默认展开；
+                    高度随内容自适应（内容少就矮、超出侧栏才滚动），课件文件用蓝色与其他项区分 */}
+                <div className="max-h-full min-h-0 shrink-0 overflow-y-auto rounded-md border bg-muted/20">
                   <div className="space-y-0.5 p-1.5">
                     {!impTree ? (
                       <p className="py-4 text-center text-xs text-muted-foreground">
