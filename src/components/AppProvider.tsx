@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
-import type { IAppData, ICourseNode, IStudent } from '@/data/types';
+import type { IAppData, ICourse, ICourseNode, IStudent } from '@/data/types';
 import { buildSeed } from '@/data/seed';
 import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness, mergeCourses } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
@@ -57,6 +57,54 @@ function mergeStudents(cloud: IStudent[] | undefined, local: IStudent[], tombsto
   return out;
 }
 
+/** 老版本把「本节课用过哪些课件」只记在本地 localStorage（本机目录加入的节点、本次添加课件 id、
+ *  前节内容加入本课的 id），而服务器 /state 又不返回 course.files，导致历史课程记录、课堂「前节内容」、
+ *  学员管理页「上课内容」永远看不到课件。这里在本机把这些本地记录补进对应课程的 files：
+ *  云端已有记录（files 非空）的课程不动，只补空的那部分，补完随整包同步写回服务器。 */
+function backfillCourseFiles(
+  courses: ICourse[],
+  courseware: Record<string, ICourseNode[]>,
+): { courses: ICourse[]; changed: boolean } {
+  let changed = false;
+  const byId = new Map<string, ICourseNode>();
+  const walk = (nodes: ICourseNode[]) => {
+    for (const n of nodes ?? []) {
+      if (n?.id) byId.set(n.id, n);
+      if (n?.children?.length) walk(n.children);
+    }
+  };
+  for (const group of Object.values(courseware ?? {})) walk(group ?? []);
+  const out = courses.map((c) => {
+    if (c.files && c.files.length > 0) return c;
+    if (typeof localStorage === 'undefined') return c;
+    const found: ICourseNode[] = [];
+    try {
+      const nodes = JSON.parse(
+        localStorage.getItem(`skey_local_lesson_nodes_${c.id}`) ?? '[]',
+      ) as ICourseNode[];
+      for (const n of nodes) if (n?.id && !found.some((x) => x.id === n.id)) found.push(n);
+    } catch {
+      /* 本地数据损坏忽略 */
+    }
+    for (const key of [`skey_added_cw_${c.id}`, `skey_lesson_extra_${c.id}`]) {
+      try {
+        const ids = JSON.parse(localStorage.getItem(key) ?? '[]') as string[];
+        for (const id of ids) {
+          if (!id || found.some((x) => x.id === id)) continue;
+          const n = byId.get(id);
+          if (n) found.push(n);
+        }
+      } catch {
+        /* 本地数据损坏忽略 */
+      }
+    }
+    if (found.length === 0) return c;
+    changed = true;
+    return { ...c, files: found };
+  });
+  return { courses: out, changed };
+}
+
 /** 读取本地删除墓碑（fid 集合） */
 function loadDeletedFids(): Set<string> {
   try {
@@ -98,6 +146,17 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   useEffect(() => { dataRef.current = data; }, [data]);
   const syncingRef = useRef(syncing);
   useEffect(() => { syncingRef.current = syncing; }, [syncing]);
+
+  // 云端数据就绪后：把本机保存的「每节课用过哪些课件」补进该课程的 files。
+  // 老版本只把这份记录留在 localStorage，云端 files 一直是空，历史课程记录/前节内容/学员「上课内容」
+  // 于是永远看不到课件。补齐后由 800ms 防抖同步写回服务器，换机器也能看到。
+  useEffect(() => {
+    if (!cloudReady) return;
+    const cur = dataRef.current;
+    const r = backfillCourseFiles(cur.courses, cur.courseware);
+    if (!r.changed) return;
+    setDataState((prev) => ({ ...prev, courses: r.courses }));
+  }, [cloudReady]);
 
   // 启动：若存在 token，恢复会话并加载云端数据
   useEffect(() => {

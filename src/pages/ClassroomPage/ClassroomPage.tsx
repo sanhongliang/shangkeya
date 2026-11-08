@@ -437,8 +437,13 @@ export default function ClassroomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [course, lessonFiles]);
 
-  // 历史课程记录：当前学员的全部课程（按日期倒序）
-  const histCourses = sameStudentCourses;
+  // 历史课程记录：当前学员「已经上过/今天及以前」的课程（按日期倒序）。
+  // 未来预排的课不进历史列表（那是排课，不是历史），避免空课件行混在记录里造成误判
+  const histCourses = useMemo(() => {
+    const t = new Date();
+    const today = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+    return sameStudentCourses.filter((c) => c.date <= today);
+  }, [sameStudentCourses]);
 
   // 进入课堂默认显示黑板空白页：不自动恢复上次打开的课件（保留写入，供手动恢复场景使用）
   useEffect(() => {
