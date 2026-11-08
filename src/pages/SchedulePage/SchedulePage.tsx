@@ -470,14 +470,13 @@ export default function SchedulePage() {
                             key={k.id}
                             type="button"
                             className={cn(
-                              'block w-full truncate rounded px-1 text-left text-[11px] leading-4 text-black transition-colors',
-                              isSel
-                                ? 'bg-primary/10 ring-1 ring-primary'
-                                : 'hover:brightness-95',
+                              'block w-full truncate border px-1 text-left text-[11px] leading-4 text-black transition-colors',
+                              isSel ? 'ring-2 ring-red-500' : 'hover:brightness-95',
                               k.done && 'opacity-60',
                             )}
                             style={{
-                              backgroundColor: isSel ? undefined : `${cc}36`,
+                              backgroundColor: `${cc}${isSel ? '99' : '66'}`,
+                              borderColor: isSel ? '#ef4444' : cc,
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -563,17 +562,15 @@ export default function SchedulePage() {
                               key={k.id}
                               type="button"
                               className={cn(
-                                'absolute inset-x-1 overflow-hidden rounded border px-1.5 py-1 text-left text-xs leading-tight transition-colors',
-                                isSel
-                                  ? 'border-primary shadow-sm ring-2 ring-primary'
-                                  : 'hover:brightness-95',
+                                'absolute inset-x-1 overflow-hidden border px-1.5 py-1 text-left text-xs leading-tight transition-colors',
+                                isSel ? 'shadow-sm ring-2 ring-red-500' : 'hover:brightness-95',
                                 k.done && 'opacity-60',
                               )}
                               style={{
                                 top: (startTotal / 60) * SLOT_H + 2,
                                 height: (dur / 60) * SLOT_H - 4,
-                                backgroundColor: isSel ? `${cc}4D` : `${cc}36`,
-                                borderColor: `${cc}66`,
+                                backgroundColor: `${cc}${isSel ? '99' : '66'}`,
+                                borderColor: isSel ? '#ef4444' : cc,
                                 color: '#000',
                               }}
                               onClick={() => setSelectedItemId(k.id)}
@@ -581,7 +578,7 @@ export default function SchedulePage() {
                               <span className="block truncate font-medium">
                                 {student?.name ?? '—'}
                               </span>
-                              <span className="block truncate text-muted-foreground">
+                              <span className="block truncate text-black/70">
                                 {k.start}-{courseEnd(k)}
                               </span>
                             </button>

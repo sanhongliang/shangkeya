@@ -720,8 +720,8 @@ export default function ClassroomPage() {
               isFolder
                 ? 'border-transparent text-foreground hover:bg-muted'
                 : selImpNode === n
-                  ? 'border-sky-500 bg-sky-100 font-medium text-sky-700'
-                  : 'border-transparent text-sky-600 hover:bg-muted',
+                  ? 'border-primary bg-primary/10 font-medium text-primary'
+                  : 'border-transparent text-primary hover:bg-muted',
             )}
             style={{ paddingLeft: 8 + depth * 12 }}
             onDragStart={(e) => {
