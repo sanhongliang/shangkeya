@@ -4,7 +4,7 @@ import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
 import type { IAppData, ICourseNode, IStudent } from '@/data/types';
 import { buildSeed } from '@/data/seed';
-import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness } from '@/api/desktop';
+import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness, mergeCourses } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
 import { getToken, setToken } from '@/api/client';
 
@@ -112,7 +112,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             students: cloud.students ?? prev.students,
             archivedStudents: cloud.archivedStudents ?? prev.archivedStudents,
-            courses: cloud.courses ?? prev.courses,
+            courses: cloud.courses ? mergeCourses(prev.courses, cloud.courses) : prev.courses,
             schedule: cloud.schedule ?? prev.schedule,
             recharges: cloud.recharges ?? prev.recharges,
             scores: cloud.scores ?? prev.scores,
@@ -200,7 +200,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             students: mergeStudents(cloud.students, prev.students, tombstones),
             archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
-            courses: cloud.courses ?? prev.courses,
+            courses: cloud.courses ? mergeCourses(prev.courses, cloud.courses) : prev.courses,
             schedule: cloud.schedule ?? prev.schedule,
             recharges: cloud.recharges ?? prev.recharges,
             scores: cloud.scores ?? prev.scores,
@@ -243,7 +243,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
           ...prev,
           students: mergeStudents(cloud.students, prev.students, tombstones),
           archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
-          courses: cloud.courses ?? prev.courses,
+          courses: cloud.courses ? mergeCourses(prev.courses, cloud.courses) : prev.courses,
           schedule: cloud.schedule ?? prev.schedule,
           recharges: cloud.recharges ?? prev.recharges,
           scores: cloud.scores ?? prev.scores,
@@ -283,7 +283,7 @@ export default function AppProvider({ children }: { children: ReactNode }) {
             ...prev,
             students: mergeStudents(cloud.students, prev.students, tombstones),
             archivedStudents: mergeStudents(cloud.archivedStudents, prev.archivedStudents, tombstones),
-            courses: cloud.courses ?? prev.courses,
+            courses: cloud.courses ? mergeCourses(prev.courses, cloud.courses) : prev.courses,
             schedule: cloud.schedule ?? prev.schedule,
             recharges: cloud.recharges ?? prev.recharges,
             scores: cloud.scores ?? prev.scores,

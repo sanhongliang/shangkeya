@@ -424,6 +424,9 @@ export default function ClassroomPage() {
   // 本节课使用的课件目录 → 写入 course.files（随 courses 同步到云端，保存文件路径）
   useEffect(() => {
     if (!course) return;
+    // 本课当前没有任何课件时不回写：否则一进课堂就把该课历史上记录的课件清空并同步上云，
+    // 导致历史课程记录/前节内容里的课件凭空消失（删除操作本身会直接改 course.files，无需这里兜底）
+    if (lessonFiles.length === 0) return;
     const files = lessonFiles.map((f) => ({ ...f, children: f.children ? [...f.children] : undefined }));
     if (JSON.stringify(course.files ?? null) !== JSON.stringify(files)) {
       setData((prev) => ({
@@ -714,6 +717,17 @@ export default function ClassroomPage() {
     let url: string | null = null;
     let cancelled = false;
     const sel = selectedCw;
+    // 课堂上真正「加载过」的课件记进本课目录：历史课程记录、前节内容、学员管理页「上课内容」
+    // 都以 course.files 为依据，只记当前打开的这一份，不会把整个课件库写进去。
+    // 注意：这里只用 course 的当前值、不把它放进依赖，避免写完立刻触发课件重载。
+    if (sel && course && !(course.files ?? []).some((f) => f.id === sel.id)) {
+      setData((prev) => ({
+        ...prev,
+        courses: prev.courses.map((c) =>
+          c.id === course.id ? { ...c, files: [...(c.files ?? []), sel] } : c,
+        ),
+      }));
+    }
     if (sel?.file) {
       setCurrentOpenPath(null);
       const kind = isTiff(sel.file.mime, sel.file.name)

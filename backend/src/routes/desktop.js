@@ -181,6 +181,10 @@ router.get('/state', async (req, res) => {
         ownerId: row.owner_id ?? null,
         ownerName: Number(row.owner_id) === 1 ? '校长' : (row.owner_name ?? row.owner_username ?? ''),
         createdAt: row.created_at ? new Date(row.created_at).toISOString() : '',
+        // 该节课使用过的课件目录（课堂页写入 course.files）。此前未还原该字段，
+        // 导致客户端一刷新/一拉云端就把本地已有的课件记录覆盖成空 → 历史课程、前节内容永远看不到课件。
+        // 兼容两种历史存法：course.files（现行 sync 写法）与顶层 files（极早期数据）。
+        files: Array.isArray(p.course?.files) ? p.course.files : (Array.isArray(p.files) ? p.files : []),
         ...(p.summary ? { summary: p.summary } : {}),
       });
     }
