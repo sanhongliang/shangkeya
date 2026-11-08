@@ -716,12 +716,12 @@ export default function ClassroomPage() {
             type="button"
             draggable={!isFolder}
             className={cn(
-              'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors',
+              'flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition-colors',
               isFolder
-                ? 'text-muted-foreground hover:bg-muted'
+                ? 'border-transparent text-foreground hover:bg-muted'
                 : selImpNode === n
-                  ? 'bg-accent font-medium text-primary'
-                  : 'text-sky-600 hover:bg-muted',
+                  ? 'border-sky-500 bg-sky-100 font-medium text-sky-700'
+                  : 'border-transparent text-sky-600 hover:bg-muted',
             )}
             style={{ paddingLeft: 8 + depth * 12 }}
             onDragStart={(e) => {

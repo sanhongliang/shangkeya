@@ -477,7 +477,7 @@ export default function SchedulePage() {
                               k.done && 'opacity-60',
                             )}
                             style={{
-                              backgroundColor: isSel ? undefined : `${cc}18`,
+                              backgroundColor: isSel ? undefined : `${cc}36`,
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -572,8 +572,8 @@ export default function SchedulePage() {
                               style={{
                                 top: (startTotal / 60) * SLOT_H + 2,
                                 height: (dur / 60) * SLOT_H - 4,
-                                backgroundColor: isSel ? `${cc}2E` : `${cc}18`,
-                                borderColor: `${cc}40`,
+                                backgroundColor: isSel ? `${cc}4D` : `${cc}36`,
+                                borderColor: `${cc}66`,
                                 color: '#000',
                               }}
                               onClick={() => setSelectedItemId(k.id)}
