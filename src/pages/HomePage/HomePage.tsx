@@ -173,7 +173,7 @@ export default function HomePage() {
               <CardTitle className="text-base">本月课时进度</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-x-4 gap-y-4">
+              <div className="grid grid-cols-2 gap-x-4 gap-y-4 justify-items-center text-center">
                 <StatItem label="预排课时" value={formatDuration(monthStats.plannedHours * 60)} />
                 <StatItem
                   label="完成课时"

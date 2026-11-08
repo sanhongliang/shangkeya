@@ -2479,7 +2479,7 @@ export default function ClassroomPage() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* 左侧书写工具栏：距窗口左边 9px；右侧分界线独立、距工具栏右缘 5px */}
         <div className="ml-[9px] flex shrink-0">
-          <div className="flex w-[4.5rem] flex-col items-center gap-2.5 overflow-y-auto bg-card py-3">
+          <div className="flex w-[4.5rem] flex-col items-center gap-2.5 overflow-y-auto border-r bg-card py-3">
           <div className="grid grid-cols-2 gap-0.5">
             {TOOLS.map((t) => (
                 <button
@@ -2879,7 +2879,7 @@ export default function ClassroomPage() {
                 </p>
                 {/* 前节课件列表 */}
                 <div
-                  className="shrink-0 overflow-y-auto rounded-md border border-slate-300 bg-muted/20"
+                  className="shrink-0 overflow-y-auto rounded-md border bg-muted/20"
                   style={{ maxHeight: '33vh' }}
                 >
                   <div className="space-y-0.5 p-1.5">
@@ -2934,7 +2934,7 @@ export default function ClassroomPage() {
                   <p className="mb-1 shrink-0 pl-3 text-[13px] text-foreground">
                     历史课程记录
                   </p>
-                  <div className="min-h-0 flex-1 overflow-y-auto rounded-md border border-slate-300 bg-muted/20">
+                  <div className="min-h-0 flex-1 overflow-y-auto rounded-md border bg-muted/20">
                     <div className="space-y-0.5 p-1.5">
                       {histCourses.length === 0 ? (
                         <p className="py-3 text-center text-xs text-muted-foreground">暂无历史课程</p>
@@ -3086,7 +3086,7 @@ export default function ClassroomPage() {
                 </div>
                 {/* 树状图：随下拉联动显示当前学期下内容，根目录(第一层)默认展开；
                     高度随内容自适应（内容少就矮、超出侧栏才滚动），课件文件用蓝色与其他项区分 */}
-                <div className="min-h-0 shrink overflow-y-auto rounded-md border border-slate-300 bg-muted/20">
+                <div className="min-h-0 shrink overflow-y-auto rounded-md border bg-muted/20">
                   <div className="space-y-0.5 p-1.5">
                     {!impTree ? (
                       <p className="py-4 text-center text-xs text-muted-foreground">
@@ -3119,7 +3119,7 @@ export default function ClassroomPage() {
               <div className="flex h-full flex-col">
                 {/* 课件列表：高度自适应，最多占屏幕 26%；空间不足时先被压缩（内部滚动），把高度让给页码表 */}
                 <div
-                  className="shrink-[3] min-h-0 overflow-y-auto rounded-md border border-slate-300 bg-muted/20"
+                  className="shrink-[3] min-h-0 overflow-y-auto rounded-md border bg-muted/20"
                   style={{ maxHeight: '22vh' }}
                 >
                   <div className="space-y-0.5 p-1.5">
@@ -3193,12 +3193,12 @@ export default function ClassroomPage() {
                 </div>
 
                 {/* 当前打开课件页码表：区域一到窗口底部位置固定不变（不因内容多少上下浮动），
-                    页数多时在本区域内纵向滚动（滚动条 8px 可见）；内容底部另留 320px 空白，
+                    页数多时在本区域内纵向滚动（滚动条 8px 可见）；内容底部另留 460px 空白，
                     答案窗口压住下部时可以继续向下滚，被盖住的是空白而不是页码 */}
-                <div className="mb-[15px] min-h-[104px] flex-1 overflow-y-auto overscroll-contain rounded-md border border-slate-300 bg-muted/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar]:w-2">
+                <div className="mb-[15px] min-h-[104px] flex-1 overflow-y-auto overscroll-contain rounded-md border bg-muted/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar]:w-2">
                   {/* 底部留一段空白：答案窗口常压在侧栏下部，留白让页码矩阵能继续向下滚，
                       滚到底时被挡住的位置只剩空白/最后一行页码，上面的行都能露出来 */}
-                  <div className="p-1.5 pb-[320px]">
+                  <div className="p-1.5 pb-[460px]">
                     <p className="mb-1 text-[13px] text-foreground">
                       当前打开课件页码
                     </p>

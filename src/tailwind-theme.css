@@ -13,7 +13,7 @@
   --foreground: hsl(220 20% 12%);
   --card: hsl(0 0% 100%);
   --card-foreground: hsl(220 20% 12%);
-  --card-border: hsl(216 14% 92%);
+  --card-border: hsl(220 8% 78%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(220 20% 12%);
   --primary: hsl(216 100% 54%);
@@ -32,8 +32,8 @@
   --success-foreground: hsl(0 0% 100%);
   --warning: hsl(38 96% 50%);
   --warning-foreground: hsl(0 0% 100%);
-  --border: hsl(216 14% 92%);
-  --input: hsl(216 14% 92%);
+  --border: hsl(220 8% 78%);
+  --input: hsl(220 8% 78%);
   --ring: hsl(216 100% 54%);
   --chart-1: #1677ff;
   --chart-2: #52c41a;
