@@ -718,10 +718,10 @@ export default function ClassroomPage() {
             className={cn(
               'flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition-colors',
               isFolder
-                ? 'border-transparent text-foreground hover:bg-muted'
+                ? 'border-border text-foreground hover:bg-muted'
                 : selImpNode === n
                   ? 'border-primary bg-primary/10 font-medium text-primary'
-                  : 'border-transparent text-primary hover:bg-muted',
+                  : 'border-border text-primary hover:bg-muted',
             )}
             style={{ paddingLeft: 8 + depth * 12 }}
             onDragStart={(e) => {
@@ -2833,20 +2833,20 @@ export default function ClassroomPage() {
             <TabsList className="w-full bg-transparent">
               <TabsTrigger
                 value="all"
-                className="bg-transparent hover:bg-transparent data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                className="border border-border bg-card hover:bg-muted data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
               >
                 本课内容
               </TabsTrigger>
               <TabsTrigger
                 value="prev"
-                className="bg-transparent hover:bg-transparent data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                className="border border-border bg-card hover:bg-muted data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
               >
                 前节内容
               </TabsTrigger>
               {tauriMode && (
                 <TabsTrigger
                   value="local"
-                  className="bg-transparent hover:bg-transparent data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
+                  className="border border-border bg-card hover:bg-muted data-[state=active]:border-primary data-[state=active]:bg-primary/10 data-[state=active]:text-primary"
                 >
                   本机目录
                 </TabsTrigger>
@@ -2891,10 +2891,10 @@ export default function ClassroomPage() {
                           key={f.id}
                           type="button"
                           className={cn(
-                            'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors',
+                            'flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition-colors',
                             prevSelId === f.id
-                              ? 'bg-accent font-medium text-primary'
-                              : 'text-foreground hover:bg-muted',
+                              ? 'border-primary bg-primary/10 font-medium text-primary'
+                              : 'border-border bg-card text-foreground hover:bg-muted',
                           )}
                           onClick={() => setPrevSelId(f.id)}
                         >
@@ -2947,7 +2947,7 @@ export default function ClassroomPage() {
                             <div key={c.id}>
                               <button
                                 type="button"
-                                className="flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs text-foreground hover:bg-muted"
+                                className="flex w-full items-center gap-1.5 rounded-md border border-border bg-card px-2 py-1 text-left text-xs text-foreground hover:bg-muted"
                                 onClick={() => toggleHist(c.id)}
                               >
                                 <ChevronRight
@@ -2979,7 +2979,7 @@ export default function ClassroomPage() {
                                       <button
                                         key={f.id}
                                         type="button"
-                                        className="flex w-full items-center gap-1.5 rounded px-2 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted"
+                                        className="flex w-full items-center gap-1.5 rounded border border-border bg-card px-2 py-0.5 text-left text-xs text-muted-foreground hover:bg-muted"
                                         style={{ paddingLeft: 8 + 16 }}
                                         onClick={() => setCwSelId(f.id)}
                                       >
@@ -3106,6 +3106,7 @@ export default function ClassroomPage() {
                 {/* 加入课堂：把选中的本机课件加入本课课件列表 */}
                 <Button
                   size="sm"
+                  variant="outline"
                   className="mb-[15px] h-7 w-full shrink-0 gap-1 text-xs"
                   disabled={!selImpNode}
                   onClick={addToClassroom}
@@ -3126,10 +3127,10 @@ export default function ClassroomPage() {
                     <button
                       type="button"
                       className={cn(
-                        'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors',
+                        'flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition-colors',
                         !cwSelId && pdfForId == null
-                          ? 'bg-accent font-medium text-primary'
-                          : 'text-foreground hover:bg-muted',
+                          ? 'border-primary bg-primary/10 font-medium text-primary'
+                          : 'border-border bg-card text-foreground hover:bg-muted',
                       )}
                       onClick={showBlackboard}
                     >
@@ -3149,12 +3150,12 @@ export default function ClassroomPage() {
                             type="button"
                             disabled={parsing}
                             className={cn(
-                              'flex w-full items-center gap-1.5 rounded-md px-2 py-1 text-left text-xs transition-colors',
+                              'flex w-full items-center gap-1.5 rounded-md border px-2 py-1 text-left text-xs transition-colors',
                               parsing
-                                ? 'cursor-not-allowed opacity-50'
+                                ? 'cursor-not-allowed border-border bg-card opacity-50'
                                 : cwSelId === f.id
-                                  ? 'bg-accent font-medium text-primary'
-                                  : 'text-foreground hover:bg-muted',
+                                  ? 'border-primary bg-primary/10 font-medium text-primary'
+                                  : 'border-border bg-card text-foreground hover:bg-muted',
                             )}
                             onClick={() => !parsing && setCwSelId(f.id)}
                           >
@@ -3210,12 +3211,12 @@ export default function ClassroomPage() {
                             type="button"
                             onClick={() => setPage(i)}
                             className={cn(
-                              'aspect-square w-full rounded text-[10px] font-medium transition-colors',
+                              'aspect-square w-full rounded border text-[10px] font-medium transition-colors',
                               page === i
-                                ? 'bg-primary text-primary-foreground'
+                                ? 'border-primary bg-primary text-primary-foreground'
                                 : f.kind === '问题'
-                                  ? 'bg-slate-300 text-black hover:bg-slate-400'
-                                  : 'bg-muted/40 text-foreground hover:bg-muted',
+                                  ? 'border-border bg-slate-300 text-black hover:bg-slate-400'
+                                  : 'border-border bg-card text-foreground hover:bg-muted',
                             )}
                           >
                             {i + 1}
@@ -3231,10 +3232,10 @@ export default function ClassroomPage() {
                             type="button"
                             onClick={() => setPage(i)}
                             className={cn(
-                              'aspect-square w-full rounded text-[10px] font-medium transition-colors',
+                              'aspect-square w-full rounded border text-[10px] font-medium transition-colors',
                               page === i
-                                ? 'bg-primary text-primary-foreground'
-                                : 'bg-muted/40 text-foreground hover:bg-muted',
+                                ? 'border-primary bg-primary text-primary-foreground'
+                                : 'border-border bg-card text-foreground hover:bg-muted',
                             )}
                           >
                             {i + 1}
