@@ -3117,10 +3117,10 @@ export default function ClassroomPage() {
             </TabsContent>
             <TabsContent value="all" className="min-h-0 flex-1">
               <div className="flex h-full flex-col">
-                {/* 课件列表：高度自适应，最多占屏幕 1/3 */}
+                {/* 课件列表：高度自适应，最多占屏幕 26%；空间不足时先被压缩（内部滚动），把高度让给页码表 */}
                 <div
-                  className="shrink-0 overflow-y-auto rounded-md border bg-muted/20"
-                  style={{ maxHeight: '33vh' }}
+                  className="shrink-[3] min-h-0 overflow-y-auto rounded-md border bg-muted/20"
+                  style={{ maxHeight: '22vh' }}
                 >
                   <div className="space-y-0.5 p-1.5">
                     <button
@@ -3192,21 +3192,21 @@ export default function ClassroomPage() {
                   </Button>
                 </div>
 
-                {/* 当前打开课件页码表 */}
-                <div className="mb-[15px] min-h-0 flex-1 overflow-y-auto rounded-md border bg-muted/20">
+                {/* 当前打开课件页码表：至少留 2 行可见高度，页数多时在本区域内纵向滚动 */}
+                <div className="mb-[15px] min-h-[104px] flex-[3] overflow-y-auto overscroll-contain rounded-md border bg-muted/20 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-muted-foreground/40 [&::-webkit-scrollbar]:w-2">
                   <div className="p-1.5">
                     <p className="mb-1 text-[13px] text-foreground">
                       当前打开课件页码
                     </p>
                     {isTiffMode && tiffPages ? (
-                      <div className="grid grid-cols-5 gap-1 p-1 pb-2">
+                      <div className="grid grid-cols-6 gap-1 p-1 pb-2">
                         {tiffPages.map((f, i) => (
                           <button
                             key={f.index}
                             type="button"
                             onClick={() => setPage(i)}
                             className={cn(
-                              'aspect-square w-full rounded text-[11px] font-medium transition-colors',
+                              'aspect-square w-full rounded text-[10px] font-medium transition-colors',
                               page === i
                                 ? 'bg-primary text-primary-foreground'
                                 : f.kind === '问题'
@@ -3220,14 +3220,14 @@ export default function ClassroomPage() {
                       </div>
                     ) : pdfImages && pdfImages.length > 0 ? (
                       // PDF/图片课件：与 TIFF 一致只显示页码序号，不做问题页等验证
-                      <div className="grid grid-cols-5 gap-1 p-1 pb-2">
+                      <div className="grid grid-cols-6 gap-1 p-1 pb-2">
                         {pdfImages.map((_, i) => (
                           <button
                             key={i}
                             type="button"
                             onClick={() => setPage(i)}
                             className={cn(
-                              'aspect-square w-full rounded text-[11px] font-medium transition-colors',
+                              'aspect-square w-full rounded text-[10px] font-medium transition-colors',
                               page === i
                                 ? 'bg-primary text-primary-foreground'
                                 : 'bg-muted/40 text-foreground hover:bg-muted',
