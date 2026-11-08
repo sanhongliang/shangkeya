@@ -6,7 +6,9 @@
 // macOS 14 / 15 自带的 WKWebView（Safari 17.x / 18.3）跑不起来，会直接抛错导致
 // “PDF 解析失败，请确认文件有效”。v4 支持 Safari 16.4+，覆盖现有 Mac 机型。
 import * as pdfjsLib from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
+// 用自己包装的 worker 入口（先补 Promise.withResolvers 再加载 pdf.worker），
+// 否则旧版 macOS WKWebView 打开 PDF 会抛 "Promise.withResolvers is not a function"。
+import PdfWorker from './pdf-worker-entry?worker';
 
 let workerReady = false;
 
@@ -33,7 +35,9 @@ export async function pdfToImages(
   { scale = 1.5, maxPages = 120, onProgress }: PdfToImagesOptions = {},
 ): Promise<string[]> {
   if (!workerReady) {
-    pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+    // 共用同一个 worker port：pdf.js 4.x 的 workerPort 可被多个文档复用，
+    // 这样也能绕开 workerSrc 自动拼路径在各端（Tauri / 网页）不一致的问题。
+    pdfjsLib.GlobalWorkerOptions.workerPort = new PdfWorker();
     workerReady = true;
   }
   const buf = await blob.arrayBuffer();

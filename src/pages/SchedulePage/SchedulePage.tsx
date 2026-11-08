@@ -87,10 +87,12 @@ export default function SchedulePage() {
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const weekGridRef = useRef<HTMLDivElement | null>(null);
 
-  // 默认从 8 点开始显示（滚动到 8:00 位置）
+  // 默认从 8 点开始显示（滚动到 8:00 位置；表头吸顶在滚动区内，需要把它的高度补上）
   useEffect(() => {
-    if (weekGridRef.current) {
-      weekGridRef.current.scrollTop = 8 * SLOT_H;
+    const el = weekGridRef.current;
+    if (el) {
+      const head = el.querySelector('[data-week-head]') as HTMLElement | null;
+      el.scrollTop = 8 * SLOT_H + (head?.offsetHeight ?? 0);
     }
   }, []);
 
@@ -497,27 +499,28 @@ export default function SchedulePage() {
           ) : (
             /* ===== 周课表：时间网格 ===== */
             <>
-              {/* 表头 + 网格整体加一圈外框，保证左/上/右/下四条边线都画出来 */}
+              {/* 表头吸顶放进滚动区内部：表头和网格共用同一个宽度上下文，
+                  垂直滚动条占掉的宽度不会让表头与下面的列错位 */}
               <div className="flex min-h-0 flex-1 flex-col border border-border">
-              {/* 表头 */}
-              <div className="grid shrink-0" style={{ gridTemplateColumns: '56px repeat(7, minmax(0, 1fr))' }}>
-                <div className="border-b border-r" />
-                {WEEKDAY_LABELS.map((w, i) => (
-                  <div
-                    key={w}
-                    className={cn(
-                      'border-b border-r py-1.5 text-center text-sm font-medium',
-                      toISO(weekDates[i]) === todayStr && 'text-primary',
-                    )}
-                  >
-                    {w}({weekDates[i].getDate()}日)
+                {/* 网格 + 课程块（0-24 小时，可滚动） */}
+                <div ref={weekGridRef} className="list-scroll min-h-0 flex-1 overflow-y-auto">
+                  <div data-week-head className="sticky top-0 z-30 bg-background">
+                    <div className="grid" style={{ gridTemplateColumns: '56px repeat(7, minmax(0, 1fr))' }}>
+                      <div className="border-b border-r" />
+                      {WEEKDAY_LABELS.map((w, i) => (
+                        <div
+                          key={w}
+                          className={cn(
+                            'border-b border-r py-1.5 text-center text-sm font-medium',
+                            toISO(weekDates[i]) === todayStr && 'text-primary',
+                          )}
+                        >
+                          {w}({weekDates[i].getDate()}日)
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                ))}
-              </div>
-
-              {/* 网格 + 课程块（0-24 小时，可滚动） */}
-              <div ref={weekGridRef} className="list-scroll min-h-0 flex-1 overflow-y-auto">
-                <div className="relative" style={{ height: GRID_H }}>
+                  <div className="relative" style={{ height: GRID_H }}>
                   <div
                     className="absolute inset-0 grid"
                     style={{

@@ -49,6 +49,21 @@
           };
         }
       })();
+      /* Promise.withResolvers 是 ES2024 新 API（Safari 17.4 / Chromium 119 起才支持）。
+         旧版 macOS WKWebView（Safari < 17.4）上没有它，pdfjs-dist 4.x 打开 PDF 时会抛
+         "Promise.withResolvers is not a function"，这里补上标准实现。 */
+      (function () {
+        if (typeof Promise.withResolvers === 'function') return;
+        Promise.withResolvers = function withResolvers() {
+          var resolve;
+          var reject;
+          var promise = new Promise(function (res, rej) {
+            resolve = res;
+            reject = rej;
+          });
+          return { promise: promise, resolve: resolve, reject: reject };
+        };
+      })();
     </script>
   </head>
   <body>
