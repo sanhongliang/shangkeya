@@ -26,6 +26,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useAppData } from '@/data/app-store';
+import { courseLabel } from '@/data/course-label';
 import type { ICourse, IScoreEntry, IStudent } from '@/data/types';
 import { api } from '@/api/client';
 import { setCourseDone } from '@/api/desktop';
@@ -287,7 +288,9 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
                           ) : null}
                         </TableCell>
                         <TableCell>
-                          <span className="block max-w-[240px] truncate">{c.content}</span>
+                          <span className="block max-w-[240px] truncate" title={courseLabel(c)}>
+                            {courseLabel(c) || '—'}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <span className="block max-w-[160px] truncate text-muted-foreground">

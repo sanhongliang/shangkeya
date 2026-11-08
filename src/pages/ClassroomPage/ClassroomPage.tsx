@@ -36,7 +36,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useAppData } from '@/data/app-store';
+import { courseLabel } from '@/data/course-label';
 import type { ICourseNode, ISettings } from '@/data/types';
 import {
   deleteCoursewareFile,
@@ -273,7 +275,9 @@ export default function ClassroomPage() {
   const [semList, setSemList] = useState<string[]>([]);
   const [selSem, setSelSem] = useState<string | null>(null);
   const [impLoading, setImpLoading] = useState(false);
-  const [impExpanded, setImpExpanded] = useState<Set<string>>(new Set());
+  // 本机目录树的展开状态（key → 是否展开）：未记录时按默认规则（只展开第一个根目录），
+  // 这样根目录也能点一下收起，其余根目录默认收起、点开才展开
+  const [impOpenMap, setImpOpenMap] = useState<Record<string, boolean>>({});
   // 本机目录树中当前选中的课件文件（点「加入课堂」才打开到黑板）
   const [selImpNode, setSelImpNode] = useState<ImportedNode | null>(null);
   // 历史课程记录：展开状态（key = course.id）
@@ -527,13 +531,14 @@ export default function ClassroomPage() {
   };
 
   // ── 「本机目录」tab：课件管理页同一套加载逻辑 ──────────────────────────
-  const toggleImp = (k: string) =>
-    setImpExpanded((prev) => {
-      const next = new Set(prev);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
-      return next;
-    });
+  // 默认只展开第一个根目录；点一下可收起。展开/收起结果按 key 记录在 impOpenMap
+  const impOpen = (key: string, depth: number, index: number): boolean => {
+    const rec = impOpenMap[key];
+    if (typeof rec === 'boolean') return rec;
+    return depth === 0 && index === 0;
+  };
+  const toggleImp = (key: string, open: boolean) =>
+    setImpOpenMap((prev) => ({ ...prev, [key]: !open }));
 
   const loadImpRoot = async (path: string) => {
     setCurRoot(path);
@@ -555,7 +560,7 @@ export default function ClassroomPage() {
       const g0 = v0?.grades[0];
       setSemList(g0?.semesters.map((s) => s.semester) ?? []);
       setSelSem(g0?.semesters[0]?.semester ?? null);
-      setImpExpanded(new Set());
+      setImpOpenMap({});
       if (res.versions.length === 0) toast.info('该目录下未发现课件文件');
     } catch (e) {
       toast.error(String(e));
@@ -605,12 +610,17 @@ export default function ClassroomPage() {
       ?.grades.find((g) => g.grade === selGrade)
       ?.semesters.find((s) => s.semester === selSem) ?? null;
 
-  /** 渲染导入的 章节/文件 层（可展开折叠；根目录(第一层)默认展开；点文件 → 仅选中，点「加入课堂」才打开） */
+  // 切换 版本/年级/学期 后树内容变了：展开状态回到默认（只展开第一个根目录），避免沿用上一棵树的状态
+  useEffect(() => {
+    setImpOpenMap({});
+  }, [selVer, selGrade, selSem]);
+
+  /** 渲染导入的 章节/文件 层（默认只展开第一个根目录、点一下可收起；点文件 → 仅选中，点「加入课堂」才打开） */
   const renderImpTree = (ns: ImportedNode[], depth: number, prefix: string) =>
     ns.map((n, i) => {
       const key = `${prefix}/n:${i}-${n.name}`;
       const isFolder = !!n.children;
-      const open = impExpanded.has(key) || depth === 0;
+      const open = impOpen(key, depth, i);
       return (
         <div key={key}>
           <button
@@ -625,13 +635,13 @@ export default function ClassroomPage() {
             )}
             style={{ paddingLeft: 8 + depth * 12 }}
             onClick={() => {
-              if (isFolder) toggleImp(key);
+              if (isFolder) toggleImp(key, open);
               else {
                 setSelImpNode((prev) => (prev === n ? null : n));
               }
             }}
           >
-            {isFolder ? (
+            {isFolder && (
               <>
                 <ChevronRight
                   className={cn(
@@ -641,12 +651,18 @@ export default function ClassroomPage() {
                 />
                 <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
               </>
-            ) : (
-              <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             )}
-            <span className="truncate">{n.name}</span>
+            {/* 文件名不再带文件图标；文字被截断时浮层显示完整名称（可超出侧栏边界） */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="min-w-0 flex-1 truncate text-left">{n.name}</span>
+              </TooltipTrigger>
+              <TooltipContent side="right" align="start" className="max-w-[480px] break-all">
+                {n.name}
+              </TooltipContent>
+            </Tooltip>
             {isFolder && (
-              <span className="ml-auto text-[10px] text-muted-foreground">{n.children?.length}</span>
+              <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{n.children?.length}</span>
             )}
           </button>
           {isFolder && open && n.children ? renderImpTree(n.children, depth + 1, key) : null}
@@ -2649,6 +2665,13 @@ export default function ClassroomPage() {
                 <p className="mb-1 shrink-0 pl-3 text-[13px] text-foreground">
                   上节课程内容
                 </p>
+                {/* 上节填写的课程内容；没填时用该节加载的第一个课件名代替，避免整块空白 */}
+                <p
+                  className="mb-1 shrink-0 truncate pl-3 pr-2 text-xs text-muted-foreground"
+                  title={prevCourse ? courseLabel(prevCourse) || '未填写课程内容' : '暂无上节课'}
+                >
+                  {prevCourse ? courseLabel(prevCourse) || '未填写课程内容' : '暂无上节课'}
+                </p>
                 {/* 前节课件列表 */}
                 <div
                   className="shrink-0 overflow-y-auto rounded-md border bg-muted/20"
@@ -2730,8 +2753,11 @@ export default function ClassroomPage() {
                                 />
                                 <CalendarDays className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                                 <span className="truncate">{label}</span>
-                                <span className="ml-auto max-w-[40%] shrink-0 truncate text-[10px] text-muted-foreground">
-                                  {c.content}
+                                <span
+                                  className="ml-auto max-w-[40%] shrink-0 truncate text-[10px] text-muted-foreground"
+                                  title={courseLabel(c)}
+                                >
+                                  {courseLabel(c) || '—'}
                                 </span>
                               </button>
                               {open && (

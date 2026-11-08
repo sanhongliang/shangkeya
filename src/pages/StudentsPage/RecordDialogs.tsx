@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { toISO } from '@/lib/dates';
 import { cn } from '@/lib/utils';
+import { courseLabel } from '@/data/course-label';
 import type { ICourse } from '@/data/types';
 
 /* ---------------- 添加充值记录 ---------------- */
@@ -221,12 +222,12 @@ export function MonthScheduleDialog({ open, onOpenChange, studentName, courses }
                           'rounded px-1 py-0.5 text-xs leading-tight',
                           c.done ? 'bg-muted text-muted-foreground' : 'bg-primary/10 text-primary',
                         )}
-                        title={`${c.start}（${c.durationMin}min） ${c.content || ''}`}
+                        title={`${c.start}（${c.durationMin}min） ${courseLabel(c)}`}
                       >
                         <div className="font-medium">
                           {c.start}（{c.durationMin}min）
                         </div>
-                        <div className="truncate">{c.content || '未填内容'}</div>
+                        <div className="truncate">{courseLabel(c) || '未填内容'}</div>
                       </div>
                     ))}
                   </div>

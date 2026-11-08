@@ -18,6 +18,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import RechargeDialog from '@/components/RechargeDialog';
 import { fetchMyAccount, loadCloudState, setCourseDone } from '@/api/desktop';
 import { useAppData } from '@/data/app-store';
+import { courseLabel } from '@/data/course-label';
 import type { ICourse, IStudent } from '@/data/types';
 import { startOfMonth, endOfMonth, toISO } from '@/lib/dates';
 import { computeRangeStats, formatDuration, formatMoney } from '@/lib/stats';
@@ -250,7 +251,9 @@ export default function HomePage() {
                           {c.start}-{formatEnd(c.start, c.durationMin)}（{c.durationMin}min）
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-sm text-muted-foreground">{c.content}</p>
+                      <p className="mt-1 truncate text-sm text-muted-foreground" title={courseLabel(c)}>
+                        {courseLabel(c)}
+                      </p>
                       <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
                         <span className="flex items-center gap-1">
                           <BookOpen className="h-3.5 w-3.5" />
