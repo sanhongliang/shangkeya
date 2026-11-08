@@ -8,7 +8,6 @@ import {
   ChevronRight,
   Download,
   FileText,
-  Folder,
   Loader2,
   MonitorPlay,
   Plus,
@@ -103,6 +102,36 @@ interface LocalCwNode {
   children?: LocalCwNode[];
 }
 
+/** 侧栏树里的名称：不带任何图标；文字完整换行显示，万一仍显示不全时，鼠标移上去浮层给出完整名称（浮层可超出侧栏边界） */
+function TreeLabel({ text }: { text: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [clipped, setClipped] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () =>
+      setClipped(el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1);
+    check();
+    const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(check);
+    ro?.observe(el);
+    return () => ro?.disconnect();
+  }, [text]);
+  const label = (
+    <span ref={ref} className="min-w-0 flex-1 whitespace-normal break-all text-left">
+      {text}
+    </span>
+  );
+  if (!clipped) return label;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{label}</TooltipTrigger>
+      <TooltipContent side="right" align="start" className="max-w-[480px] break-all">
+        {text}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 /** 课件根目录（与课件管理页共享 localStorage） */
 interface RootEntry {
   path: string;
@@ -153,6 +182,23 @@ export default function ClassroomPage() {
   const [textSizePx, setTextSizePx] = useState(24);
   const textSize = textSizePx / 500;
   const [page, setPage] = useState(0);
+  // 课件页码记忆：切换不同课件/黑板/图片后再切回来，回到原来的页码（按课程持久化到本机）
+  const pageMemRef = useRef<Record<string, number>>(
+    (() => {
+      try {
+        const raw = localStorage.getItem(`skey_pages_${cwPersistKey}`);
+        const o = raw ? (JSON.parse(raw) as Record<string, number>) : null;
+        return o && typeof o === 'object' ? o : {};
+      } catch {
+        return {};
+      }
+    })(),
+  );
+  /** 取该内容（课件 id / plain 黑板）上次停留的页码；没有记录返回 0 */
+  const pageMemGet = (key: string): number => {
+    const v = pageMemRef.current[key];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  };
   const [seconds, setSeconds] = useState(0);
   // 视频/音频课件播放信息（黑板窗口播放；浏览器模式课堂占位区播放）
   const [mediaInfo, setMediaInfo] = useState<MediaInfo | null>(null);
@@ -290,6 +336,31 @@ export default function ClassroomPage() {
       return next;
     });
   const [currentOpenPath, setCurrentOpenPath] = useState<string | null>(null);
+  // 「当前黑板内容」的稳定标识：本机目录文件按路径区分，其余按 课件 id / plain（黑板）区分。
+  // 板书笔迹与页码都按这个 key 记忆，切换不同课件、黑板、图片后切回来还在
+  const boardContentKey = currentOpenPath
+    ? `local:${currentOpenPath}`
+    : pdfForId ?? cwSelId ?? 'plain';
+  // 页码记忆写入：翻页即记到当前内容的 key；切换到别的内容时只结算旧 key，不把旧页码错记到新内容
+  const pagePersistRef = useRef({ key: boardContentKey, page });
+  useEffect(() => {
+    const prev = pagePersistRef.current;
+    if (prev.key !== boardContentKey) {
+      pageMemRef.current[prev.key] = prev.page;
+      pagePersistRef.current = { key: boardContentKey, page };
+      return;
+    }
+    pageMemRef.current[boardContentKey] = page;
+    pagePersistRef.current = { key: boardContentKey, page };
+    const t = window.setTimeout(() => {
+      try {
+        localStorage.setItem(`skey_pages_${cwPersistKey}`, JSON.stringify(pageMemRef.current));
+      } catch {
+        /* 本机存储配额不足时忽略 */
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [page, boardContentKey, cwPersistKey]);
   const [tiffMeta, setTiffMeta] = useState<TiffDeferred | null>(null);
   const [tiffLoading, setTiffLoading] = useState(false);
   // 逐帧解码：当前帧图片（按需加载）
@@ -513,7 +584,7 @@ export default function ClassroomPage() {
         if (deferred.frames[0]) setTiffAspect(deferred.frames[0].width / deferred.frames[0].height);
         setTiffPageUrl(null);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(0);
+        setPage(pageMemGet(node.path));
         // 跳过课件首页（设置项开启）：首页不是问题页 → 直接跳过，不做文字识别
         if (
           data.settings.skipCoursewareHome &&
@@ -530,14 +601,14 @@ export default function ClassroomPage() {
         const imgs = await pdfToImages(new Blob([buf], { type: 'application/pdf' }));
         setPdfImages(imgs);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(0);
+        setPage(pageMemGet(node.path));
         toast.success(`已加载 PDF 共 ${imgs.length} 页`);
       } else {
         const blob = new Blob([buf]);
         const url = URL.createObjectURL(blob);
         setPdfImages([url]);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(0);
+        setPage(pageMemGet(node.path));
         toast.success('已加载图片课件');
       }
     } catch (e) {
@@ -659,25 +730,15 @@ export default function ClassroomPage() {
             }}
           >
             {isFolder && (
-              <>
-                <ChevronRight
-                  className={cn(
-                    'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
-                    open && 'rotate-90',
-                  )}
-                />
-                <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
-              </>
+              <ChevronRight
+                className={cn(
+                  'h-3 w-3 shrink-0 text-muted-foreground transition-transform',
+                  open && 'rotate-90',
+                )}
+              />
             )}
-            {/* 文件名不再带文件图标；文字被截断时浮层显示完整名称（可超出侧栏边界） */}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span className="min-w-0 flex-1 truncate text-left">{n.name}</span>
-              </TooltipTrigger>
-              <TooltipContent side="right" align="start" className="max-w-[480px] break-all">
-                {n.name}
-              </TooltipContent>
-            </Tooltip>
+            {/* 不带文件夹/文件图标；名称完整换行显示，显示不全时悬停浮层看全名（可超出侧栏边界） */}
+            <TreeLabel text={n.name} />
             {isFolder && (
               <span className="ml-auto shrink-0 text-[10px] text-muted-foreground">{n.children?.length}</span>
             )}
@@ -769,7 +830,7 @@ export default function ClassroomPage() {
           // 后台预解析缓存命中：直接显示，不重新解析
           setPdfImages(cached);
           setPdfForId(sel.id);
-          setPage(0);
+          setPage(pageMemGet(sel.id));
         } else {
           loadCoursewareBlob(sel)
             .then(async (blob) => {
@@ -779,7 +840,7 @@ export default function ClassroomPage() {
               if (cancelled) return;
               setPdfImages(imgs);
               setPdfForId(sel.id);
-              setPage(0);
+              setPage(pageMemGet(sel.id));
             })
             .catch((e) => toast.error('PDF 解析失败：' + (e instanceof Error ? e.message : String(e))))
             .finally(() => {
@@ -800,7 +861,7 @@ export default function ClassroomPage() {
           if (deferred.frames[0]) setTiffAspect(deferred.frames[0].width / deferred.frames[0].height);
           setTiffPageUrl(null);
           setPdfForId(sel.id);
-          setPage(0);
+          setPage(pageMemGet(sel.id));
         };
         if (cached) {
           void useCached(cached);
@@ -825,7 +886,7 @@ export default function ClassroomPage() {
             url = URL.createObjectURL(blob);
             setPdfImages([url]);
             setPdfForId(sel.id);
-            setPage(0);
+            setPage(pageMemGet(sel.id));
           })
           .catch(() => toast.error('课件文件读取失败'));
       } else if (kind === 'ppt') {
@@ -842,7 +903,7 @@ export default function ClassroomPage() {
         // 视频/音频课件：读取文件 → 播放器（黑板窗口 overlay，浏览器模式课堂占位区显示）
         setPdfImages(null);
         setPdfForId(sel.id);
-        setPage(0);
+        setPage(pageMemGet(sel.id));
         loadCoursewareBlob(sel)
           .then((blob) => {
             if (cancelled || !blob) return;
@@ -863,7 +924,7 @@ export default function ClassroomPage() {
         // HTML 网页课件：读取内容 → iframe overlay 全幅显示（黑板窗口 overlay，浏览器模式课堂占位区显示）
         setPdfImages(null);
         setPdfForId(sel.id);
-        setPage(0);
+        setPage(pageMemGet(sel.id));
         loadCoursewareBlob(sel)
           .then(async (blob) => {
             if (cancelled || !blob) return;
@@ -1356,7 +1417,7 @@ export default function ClassroomPage() {
     setPdfForId(null);
     setPdfImages(null);
     setCurrentOpenPath(null);
-    setPage(0);
+    setPage(pageMemGet('plain'));
   };
 
   // ── 黑板独立窗口：课堂页打开时自动创建无边框窗口，书写/课件加载/翻页/缩放都在窗口内 ──
@@ -1512,6 +1573,7 @@ export default function ClassroomPage() {
       pageCount,
       isTiffMode: s.isTiffMode,
       penetrateNextUrl: s.penetrateNextUrl,
+      persistKey: `${cwPersistKey}_${boardContentKey}`,
     });
     sendToBoard('bc:props', {
       tool: s.tool,
@@ -1528,8 +1590,9 @@ export default function ClassroomPage() {
       boardAspectFree: s.boardAspectFree,
       timerText: s.timerText,
       penetrateNextUrl: s.penetrateNextUrl,
+      persistKey: `${cwPersistKey}_${boardContentKey}`,
     });
-    sendToBoard('bc:resetKey', s.pdfForId ?? s.cwSelId ?? 'plain');
+    sendToBoard('bc:resetKey', boardContentKey);
     sendToBoard('bc:image', s.bgImage ?? null);
     sendToBoard('bc:pageCount', pageCount);
     sendToBoard('bc:page', s.page);
@@ -1763,11 +1826,12 @@ export default function ClassroomPage() {
     });
   }, [tauriMode, boardWinOk, sendToBoard, tool, color, penSize, lineStyle, fontFamily, textSize, tiffAspect, timerText, data.settings.boardStyle, data.settings.hideQuestionInfo, data.settings.hideQuestionTimeRegion, data.settings.boardAspectMode, data.settings.freeBoardAspectW, data.settings.freeBoardAspectH, bgImage, cwImgSize, penetrateNextUrl]);
 
-  // 课件切换 → 重置共享窗口画布
+  // 课件切换 → 重置共享窗口画布（同时更新板书持久化 key：不同课件/黑板/图片各自一份笔迹）
   useEffect(() => {
     if (!tauriMode || !boardWinOk) return;
-    sendToBoard('bc:resetKey', pdfForId ?? cwSelId ?? 'plain');
-  }, [tauriMode, boardWinOk, sendToBoard, pdfForId, cwSelId]);
+    sendToBoard('bc:resetKey', boardContentKey);
+    sendToBoard('bc:props', { persistKey: `${cwPersistKey}_${boardContentKey}` });
+  }, [tauriMode, boardWinOk, sendToBoard, boardContentKey, cwPersistKey]);
 
   // 当前页背景 / 页码 / 页数同步（值去重：即使 effect 因依赖变化重跑，值不变也不重发，
   // 避免高频重发背景导致黑板窗口反复重载、缩放循环 → 背景逐笔缩小）
@@ -2300,12 +2364,8 @@ export default function ClassroomPage() {
           style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => n.type === 'file' && !parsing && setCwSelId(n.id)}
         >
-          {n.type === 'folder' ? (
-            <Folder className="h-3.5 w-3.5 shrink-0 text-warning" />
-          ) : (
-            <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate">{n.name}</span>
+          {/* 不带文件夹/文件图标；名称完整换行显示，显示不全时悬停浮层看全名 */}
+          <TreeLabel text={n.name} />
         </button>
       );
     });
@@ -2541,7 +2601,8 @@ export default function ClassroomPage() {
           ) : (
             <BoardCanvas
               ref={boardRef}
-              key={pdfForId ?? cwSelId ?? 'plain'}
+              key={boardContentKey}
+              persistKey={`${cwPersistKey}_${boardContentKey}`}
               boardStyle={data.settings.boardStyle}
               customBoardImage={data.settings.customBoardImage}
               boardBackground="#3a3a3a"

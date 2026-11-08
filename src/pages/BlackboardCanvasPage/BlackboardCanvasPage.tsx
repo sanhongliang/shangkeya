@@ -24,6 +24,8 @@ interface BcInit {
   isTiffMode?: boolean;
   /** 渗透显示：下一页课件帧图像 URL（多页 TIFF 才有） */
   penetrateNextUrl?: string | null;
+  /** 板书持久化 key（课程 + 当前课件/黑板内容）：切换课件/黑板/图片再切回来，笔迹仍在 */
+  persistKey?: string;
 }
 
 /**
@@ -44,6 +46,8 @@ export default function BlackboardCanvasPage() {
   // 渗透显示：下一页课件帧图像 URL（主窗口推送）
   const [penetrateNextUrl, setPenetrateNextUrl] = useState<string | null>(null);
   const [key, setKey] = useState('plain');
+  // 板书持久化 key（主窗口随状态推送）：「当前内容」的笔迹按它存取
+  const [persistKey, setPersistKey] = useState('');
   const [zoomSync, setZoomSync] = useState<number | null>(null);
   // 视频/音频课件播放信息（课堂窗口经 bc:media 推送，黑板窗口 overlay 播放）
   const [media, setMedia] = useState<MediaInfo | null>(null);
@@ -64,6 +68,7 @@ export default function BlackboardCanvasPage() {
       listen('bc:init', (e) => {
         const p = e.payload as BcInit;
         setInit(p);
+        if (typeof p.persistKey === 'string') setPersistKey(p.persistKey);
         setPageCount(p.pageCount ?? 1);
         if (typeof p.boardAspect === 'number' && p.boardAspect > 0) {
           aspectRef.current = p.boardAspect;
@@ -77,6 +82,7 @@ export default function BlackboardCanvasPage() {
         // 黑板窗口比例按设置页黑板画面比例（不随课件变化；跟随课件模式随课件图片比例变化）
         const payload = e.payload as Partial<BcInit>;
         setPatch((prev) => ({ ...prev, ...payload }));
+        if (typeof payload.persistKey === 'string') setPersistKey(payload.persistKey);
         if (typeof payload.boardAspect === 'number' && payload.boardAspect > 0) {
           aspectRef.current = payload.boardAspect;
         }
@@ -324,7 +330,8 @@ export default function BlackboardCanvasPage() {
   return (
     <div style={{ height: '100vh', background: '#3a3a3a', overflow: 'hidden', position: 'relative' }}>
       <BoardCanvas
-        key={key}
+        key={persistKey || key}
+        persistKey={persistKey || undefined}
         ref={boardRef}
         showControls={false}
         boardBackground="#ffffff"

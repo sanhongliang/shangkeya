@@ -72,9 +72,34 @@ export interface BoardCanvasProps {
   /** 透明覆盖书写模式（课件 HTML/视频 书写层）：画布透明（不画黑板背景/边框），尺寸=容器全尺寸，
    *  完全复用黑板书写工具在课件上批注 */
   overlayMode?: boolean;
+  /** 板书持久化 key：同一课件/黑板/图片切回来时，笔迹仍在（切走前自动写入本机，重新挂载时读回）。
+   *  为空则不持久化（独立黑板窗口等不需要的场景） */
+  persistKey?: string;
 }
 
 const PAGE_COUNT = 10;
+
+/** 板书持久化存储键（按课程 + 当前内容隔离，避免不同课件/黑板互相覆盖） */
+function boardStoreKey(k?: string): string {
+  return k ? `skey_board_${k}` : '';
+}
+
+/** 读取已保存的板书；无数据/损坏/超限时返回空白页 */
+function loadBoardPages(k?: string): IShape[][] {
+  const blank = () => Array.from({ length: PAGE_COUNT }, () => [] as IShape[]);
+  if (!k) return blank();
+  try {
+    const raw = localStorage.getItem(boardStoreKey(k));
+    if (!raw) return blank();
+    const saved = JSON.parse(raw) as IShape[][];
+    if (!Array.isArray(saved)) return blank();
+    const out = blank();
+    for (let i = 0; i < PAGE_COUNT; i++) if (Array.isArray(saved[i])) out[i] = saved[i];
+    return out;
+  } catch {
+    return blank();
+  }
+}
 
 /** 图片缓存：shape 重绘时复用已加载图片 */
 const imageCache = new Map<string, HTMLImageElement>();
@@ -571,6 +596,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     onPageChange,
     onClear,
     overlayMode = false,
+    persistKey,
   }: BoardCanvasProps,
   ref,
 ) {
@@ -582,7 +608,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
   const fileRef = useRef<HTMLInputElement | null>(null);
   const imagePosRef = useRef<{ x: number; y: number } | null>(null);
   const [size, setSize] = useState({ w: 800, h: 500 });
-  const [pages, setPages] = useState<IShape[][]>(() => Array.from({ length: PAGE_COUNT }, () => []));
+  const [pages, setPages] = useState<IShape[][]>(() => loadBoardPages(persistKey));
   const [draft, setDraft] = useState<IShape | null>(null);
   const [eraserPath, setEraserPath] = useState<{ x: number; y: number }[] | null>(null);
   const [textBox, setTextBox] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
@@ -618,6 +644,29 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
   useEffect(() => {
     pagesRef.current = pages;
   }, [pages]);
+  // 板书持久化：笔迹变化后 400ms 写入本机；切换课件/黑板/图片（组件重建）或刷新、重启后，
+  // 回到同一内容时笔迹仍在。卸载时立即补写一次，保证最后一笔不丢。
+  useEffect(() => {
+    if (!persistKey) return;
+    const t = window.setTimeout(() => {
+      try {
+        localStorage.setItem(boardStoreKey(persistKey), JSON.stringify(pagesRef.current));
+      } catch {
+        /* 本机存储配额不足时忽略，不影响课堂书写 */
+      }
+    }, 400);
+    return () => window.clearTimeout(t);
+  }, [pages, persistKey]);
+  useEffect(() => {
+    if (!persistKey) return;
+    return () => {
+      try {
+        localStorage.setItem(boardStoreKey(persistKey), JSON.stringify(pagesRef.current));
+      } catch {
+        /* 忽略 */
+      }
+    };
+  }, [persistKey]);
   const historyRef = useRef<IShape[][][]>([]);
   const pushHistory = useCallback(() => {
     historyRef.current = [...historyRef.current, structuredClone(pagesRef.current)];

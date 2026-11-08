@@ -18,7 +18,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import RechargeDialog from '@/components/RechargeDialog';
 import { fetchMyAccount, loadCloudState, setCourseDone } from '@/api/desktop';
 import { useAppData } from '@/data/app-store';
-import { courseLabel } from '@/data/course-label';
+import { courseFilesLabel } from '@/data/course-label';
 import type { ICourse, IStudent } from '@/data/types';
 import { startOfMonth, endOfMonth, toISO } from '@/lib/dates';
 import { computeRangeStats, formatDuration, formatMoney } from '@/lib/stats';
@@ -251,15 +251,17 @@ export default function HomePage() {
                           {c.start}-{formatEnd(c.start, c.durationMin)}（{c.durationMin}min）
                         </span>
                       </div>
-                      <p className="mt-1 truncate text-sm text-muted-foreground" title={courseLabel(c)}>
-                        {courseLabel(c)}
-                      </p>
-                      <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                          <BookOpen className="h-3.5 w-3.5" />
+                      <div className="mt-1.5 flex flex-wrap items-start gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                        <span className="flex min-w-0 items-start gap-1">
+                          <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                           备课：
-                          {c.prep ? (
-                            <span className="font-medium text-success">已备</span>
+                          {courseFilesLabel(c) ? (
+                            <span
+                              className="min-w-0 whitespace-normal break-all font-medium text-success"
+                              title={courseFilesLabel(c)}
+                            >
+                              {courseFilesLabel(c)}
+                            </span>
                           ) : (
                             <span>未备</span>
                           )}
