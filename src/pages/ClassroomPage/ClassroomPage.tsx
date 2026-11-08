@@ -388,7 +388,16 @@ export default function ClassroomPage() {
   const prevCourse = curKey
     ? sameStudentCourses.find((c) => `${c.date} ${c.start}` < curKey)
     : sameStudentCourses[0] ?? null;
-  const prevFiles = prevCourse?.files ?? [];
+  // 前节内容实际取用的课程：紧邻的上一节若没有课件记录，回溯到最近一节「有课件记录」的课程，
+  // 保证面板里总能看到该学员上一次真正用过的课件（回溯时界面上会标注来源日期）
+  const prevCourseWithFiles = useMemo(() => {
+    if (!curKey) return sameStudentCourses.find((c) => (c.files?.length ?? 0) > 0) ?? null;
+    const before = sameStudentCourses.filter((c) => `${c.date} ${c.start}` < curKey);
+    if (before.length === 0) return null;
+    if ((before[0].files?.length ?? 0) > 0) return before[0];
+    return before.find((c) => (c.files?.length ?? 0) > 0) ?? null;
+  }, [sameStudentCourses, curKey]);
+  const prevFiles = prevCourseWithFiles?.files ?? [];
   const prevIds = new Set(prevFiles.map((f) => f.id));
   const localLessonNodes = localLessonIds
     .map((id) => localNodeCacheRef.current.get(id))
@@ -2662,15 +2671,27 @@ export default function ClassroomPage() {
             <TabsContent value="prev" className="min-h-0 flex-1">
               <div className="flex h-full flex-col">
                 {/* 上节课程内容 */}
-                <p className="mb-1 shrink-0 pl-3 text-[13px] text-foreground">
+                <p className="shrink-0 pl-3 text-[13px] text-foreground">
                   上节课程内容
                 </p>
-                {/* 上节填写的课程内容；没填时用该节加载的第一个课件名代替，避免整块空白 */}
+                {/* 上一节没记录课件时，明确标出这里显示的是哪一次课程的课件，避免误认成紧邻上节 */}
+                {prevCourseWithFiles && prevCourse && prevCourseWithFiles.id !== prevCourse.id && (
+                  <p className="mb-1 shrink-0 pl-3 pr-2 text-[11px] leading-snug text-muted-foreground">
+                    上一节（{prevCourse.date}）未记录课件，显示最近一次有课件的课程（{prevCourseWithFiles.date}）
+                  </p>
+                )}
+                {/* 该节填写的课程内容；没填时用该节加载的第一个课件名代替，避免整块空白 */}
                 <p
                   className="mb-1 shrink-0 truncate pl-3 pr-2 text-xs text-muted-foreground"
-                  title={prevCourse ? courseLabel(prevCourse) || '未填写课程内容' : '暂无上节课'}
+                  title={
+                    prevCourseWithFiles
+                      ? courseLabel(prevCourseWithFiles) || '未填写课程内容'
+                      : '暂无上节课'
+                  }
                 >
-                  {prevCourse ? courseLabel(prevCourse) || '未填写课程内容' : '暂无上节课'}
+                  {prevCourseWithFiles
+                    ? courseLabel(prevCourseWithFiles) || '未填写课程内容'
+                    : '暂无上节课'}
                 </p>
                 {/* 前节课件列表 */}
                 <div
