@@ -1518,6 +1518,8 @@ export default function ClassroomPage() {
   const [boardFill, setBoardFill] = useState(1);
   // 添加课件弹窗（课堂窗口子窗口，显示顺序高于黑板）
   const addcwWinRef = useRef<WebviewWindowType | null>(null);
+  // 转换器缺失引导窗（独立置顶小窗口：直接下载 / 官网下载页 / 关闭 三个出口）
+  const convGuideWinRef = useRef<WebviewWindowType | null>(null);
   // 诊断：黑板窗口是否已收到位置广播并贴合
   const [boardAck, setBoardAck] = useState(false);
   const boardPageCount = useMemo(
@@ -2212,17 +2214,48 @@ export default function ClassroomPage() {
   // 防重入：文件对话框已打开时忽略重复触发（避免同时打开多个对话框、最终重复添加课件）
   const pickingRef = useRef(false);
 
-  // 转换器缺失的引导：桌面端必须用系统原生消息框——页面内 Dialog 渲染在课堂窗口里，
-  // 会被黑板/添加课件这些子窗口整块盖住（用户反馈：提示跑到黑板后边看不见，像是“卡住了”）；
-  // 网页版没有多窗口，仍用页面内 Dialog。
+  // 转换器缺失的引导：桌面端用独立置顶小窗口（页面内 Dialog 会被黑板/添加课件这些子窗口
+  // 整块盖住，用户反馈"提示跑到黑板后边看不见，像卡住"）；窗口内提供三个出口：
+  // 直接下载安装包 / 打开官网下载页 / 关闭。网页版没有多窗口，仍用页面内 Dialog。
   const showConverterGuide = async (platform: string, url: string) => {
     if (tauriMode) {
       try {
-        const { invoke } = await import('@tauri-apps/api/core');
-        void invoke('show_converter_guide', { platform });
+        const { getCurrentWindow } = await import('@tauri-apps/api/window');
+        const mw = getCurrentWindow();
+        const label = `convguide-${mw.label}`;
+        const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+        if (convGuideWinRef.current) {
+          await convGuideWinRef.current.close().catch(() => undefined);
+          convGuideWinRef.current = null;
+        }
+        const scale = await mw.scaleFactor();
+        const co = await contentOrigin(mw);
+        const winW = 420;
+        const winH = 306;
+        const win = new WebviewWindow(label, {
+          title: '未找到可用的文档转换器',
+          width: winW,
+          height: winH,
+          x: Math.round(co.x / scale + (co.innerW / scale - winW) / 2),
+          y: Math.round(co.y / scale + (co.innerH / scale - winH) / 2),
+          resizable: false,
+          maximizable: false,
+          minimizable: false,
+          // 置顶 + 挂到黑板窗口下：确保不被黑板 / 添加课件弹窗遮挡
+          alwaysOnTop: true,
+          parent: boardWinRef.current ? 'blackboard-canvas' : mw.label,
+          url: 'index.html#/converter-guide',
+        });
+        win.once('tauri://error', () => {
+          convGuideWinRef.current = null;
+          setLoHelp({ open: true, platform, url });
+        });
+        win.once('tauri://created', () => {
+          convGuideWinRef.current = win;
+        });
         return;
       } catch {
-        /* 原生框失败就退回页面内 Dialog */
+        /* 窗口创建失败就退回页面内 Dialog */
       }
     }
     setLoHelp({ open: true, platform, url });

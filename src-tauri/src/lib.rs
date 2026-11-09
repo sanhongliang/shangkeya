@@ -50,6 +50,7 @@ fn open_external(url: String) -> Result<(), String> {
         "https://libreoffice.org/",
         "https://download.libreoffice.org/",
         "https://zh-cn.libreoffice.org/",
+        "https://download.documentfoundation.org/",
     ]
     .iter()
     .any(|p| url.starts_with(p));
@@ -1135,11 +1136,11 @@ async fn show_converter_guide(app: tauri::AppHandle, platform: String) -> Result
     use tauri_plugin_dialog::{MessageDialogButtons, MessageDialogKind};
     let content = if platform == "macos" {
         "添加 PPT / Word 课件需要先把文档转成 PDF，但本机没有找到可用的转换器。\n\n\
-         办法一：安装免费的 LibreOffice，装好后重启上课鸭再添加；\n\
+         办法一：安装免费的 LibreOffice，装好后重启上课鸭再添加（点下面的按钮直接下载安装包）；\n\
          办法二：用 Keynote / PowerPoint / WPS 把课件另存为 PDF，再直接添加 PDF。"
     } else {
         "添加 PPT / Word 课件需要先把文档转成 PDF，但本机没有找到可用的转换器。\n\n\
-         办法一：安装 WPS 或 Office，或免费的 LibreOffice，装好后重启上课鸭再添加；\n\
+         办法一：安装 WPS 或 Office，或免费的 LibreOffice，装好后重启上课鸭再添加（点下面的按钮直接下载安装包）；\n\
          办法二：先用 WPS / Office 把课件另存为 PDF，再直接添加 PDF。"
     };
     let (tx, rx) = std::sync::mpsc::channel::<bool>();
@@ -1148,7 +1149,7 @@ async fn show_converter_guide(app: tauri::AppHandle, platform: String) -> Result
         .title("未找到可用的文档转换器")
         .kind(MessageDialogKind::Warning)
         .buttons(MessageDialogButtons::OkCancelCustom(
-            "打开 LibreOffice 下载页".to_string(),
+            "立即下载 LibreOffice".to_string(),
             "关闭".to_string(),
         ))
         .show(move |open| {
@@ -1156,11 +1157,123 @@ async fn show_converter_guide(app: tauri::AppHandle, platform: String) -> Result
         });
     let open = rx.recv().unwrap_or(false);
     if open {
-        let _ = open_external(
-            "https://www.libreoffice.org/download/download-libreoffice/".to_string(),
-        );
+        // 优先给安装包直链（浏览器点开即开始下载），拿不到版本号再退回官方下载页
+        let url = converter_direct_download_url()
+            .unwrap_or_else(|| "https://www.libreoffice.org/download/download-libreoffice/".to_string());
+        let _ = open_external(url);
     }
     Ok(open)
+}
+
+/// 给前端「直接下载」按钮用：返回当前平台对应的安装包直链。
+#[tauri::command]
+async fn converter_download_url() -> Result<String, String> {
+    converter_direct_download_url().ok_or_else(|| "未能获取最新版安装包地址".to_string())
+}
+
+/// 用系统自带 curl 抓文本（Windows 10 / macOS 都自带，不必引入第三方 TLS 库）。
+fn curl_text(url: &str, timeout_secs: u32) -> Option<String> {
+    let mut cmd = Command::new("curl");
+    cmd.args([
+        "-sS",
+        "-L",
+        "--max-time",
+        &timeout_secs.to_string(),
+        url,
+    ])
+    .stdout(Stdio::piped())
+    .stderr(Stdio::null());
+    hide_console(&mut cmd);
+    let out = cmd.output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()
+}
+
+/// 用 curl HEAD 判断直链是否可取（-L 跟随镜像重定向，取最终状态码）。
+fn curl_head_ok(url: &str, timeout_secs: u32) -> bool {
+    #[cfg(target_os = "windows")]
+    const DEV_NULL: &str = "NUL";
+    #[cfg(not(target_os = "windows"))]
+    const DEV_NULL: &str = "/dev/null";
+    let mut cmd = Command::new("curl");
+    cmd.args([
+        "-sS",
+        "-L",
+        "-I",
+        "-o",
+        DEV_NULL,
+        "-w",
+        "%{http_code}",
+        "--max-time",
+        &timeout_secs.to_string(),
+        url,
+    ])
+    .stderr(Stdio::null());
+    hide_console(&mut cmd);
+    let out = match cmd.output() {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    if !out.status.success() {
+        return false;
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .trim()
+        .parse::<u16>()
+        .map(|c| (200..400).contains(&c))
+        .unwrap_or(false)
+}
+
+/// 抓 LibreOffice 官方 stable 目录，取其中最新的 x.y.z 版本号。
+fn latest_libreoffice_version() -> Option<String> {
+    let body = curl_text("https://download.documentfoundation.org/libreoffice/stable/", 8)?;
+    let mut best: Option<((u32, u32, u32), String)> = None;
+    for chunk in body.split('"') {
+        let t = chunk.trim().trim_end_matches('/');
+        let parts: Vec<&str> = t.split('.').collect();
+        if parts.len() != 3
+            || parts
+                .iter()
+                .any(|p| p.is_empty() || !p.chars().all(|c| c.is_ascii_digit()))
+        {
+            continue;
+        }
+        let (Ok(a), Ok(b), Ok(c)) = (
+            parts[0].parse::<u32>(),
+            parts[1].parse::<u32>(),
+            parts[2].parse::<u32>(),
+        ) else {
+            continue;
+        };
+        let key = (a, b, c);
+        if best.as_ref().map(|(k, _)| key > *k).unwrap_or(true) {
+            best = Some((key, t.to_string()));
+        }
+    }
+    best.map(|(_, v)| v)
+}
+
+/// 拼出当前平台/架构对应的 LibreOffice 安装包直链（点开即下载）。
+fn converter_direct_download_url() -> Option<String> {
+    let ver = latest_libreoffice_version()?;
+    #[cfg(target_os = "macos")]
+    let url = if std::env::consts::ARCH == "aarch64" {
+        format!("https://download.documentfoundation.org/libreoffice/stable/{ver}/mac/aarch64/LibreOffice_{ver}_MacOS_aarch64.dmg")
+    } else {
+        format!("https://download.documentfoundation.org/libreoffice/stable/{ver}/mac/x86_64/LibreOffice_{ver}_MacOS_x86-64.dmg")
+    };
+    #[cfg(target_os = "windows")]
+    let url = format!("https://download.documentfoundation.org/libreoffice/stable/{ver}/win/x86_64/LibreOffice_{ver}_Win_x86-64.msi");
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let url = return None;
+    // 用 HEAD 确认文件确实存在（版本号读对了但文件名变动时退回官网页面）
+    if curl_head_ok(&url, 8) {
+        Some(url)
+    } else {
+        None
+    }
 }
 
 pub fn run() {
@@ -1205,6 +1318,7 @@ pub fn run() {
                             w.label().starts_with("answer-")
                                 || w.label().starts_with("addcw-")
                                 || w.label().starts_with("confirm-")
+                                || w.label().starts_with("convguide-")
                         })
                         .map(|w| w.label().to_string())
                         .collect();
@@ -1229,6 +1343,7 @@ pub fn run() {
             pick_courseware_dialog,
             save_temp_for_convert,
             show_converter_guide,
+            converter_download_url,
             reload_webview,
             open_devtools,
             close_webview,

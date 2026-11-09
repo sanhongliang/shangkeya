@@ -17,6 +17,7 @@ import AddCoursewarePopup from '@/pages/AddCoursewarePopup/AddCoursewarePopup';
 import ConfirmClearPopup from '@/pages/ConfirmClearPopup/ConfirmClearPopup';
 import AnswerWindowPage from '@/pages/AnswerWindowPage/AnswerWindowPage';
 import RemarkWindowPage from '@/pages/RemarkWindowPage/RemarkWindowPage';
+import ConverterGuidePopup from '@/pages/ConverterGuidePopup/ConverterGuidePopup';
 import NotFoundPage from '@/pages/NotFoundPage/NotFoundPage';
 
 /** 是否运行在桌面客户端（Tauri）；网页版无此标记 */
@@ -167,6 +168,7 @@ export default function App() {
         <Route path="/confirm-clear" element={<ConfirmClearPopup />} />
         <Route path="/answer-window" element={<AnswerWindowPage />} />
         <Route path="/remark-window" element={<RemarkWindowPage />} />
+        <Route path="/converter-guide" element={<ConverterGuidePopup />} />
         <Route index element={<Navigate to="/home" replace />} />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
