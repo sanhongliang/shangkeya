@@ -2852,6 +2852,7 @@ export default function ClassroomPage() {
               penetrateNextUrl={
                 isTiffMode && tiffPages && tiffPages.length > 1 ? penetrateNextUrl : null
               }
+              onPenetratePlaced={() => setTool('pencil')}
               timerText={timerText}
               onToggleShare={
                 tauriMode && data.settings.boardWindowMode === 'separate'

@@ -66,6 +66,8 @@ export interface BoardCanvasProps {
   isTiffMode?: boolean;
   /** 渗透显示：下一页课件帧图像 URL（多页课件才有；为空则渗透框不显示内容） */
   penetrateNextUrl?: string | null;
+  /** 渗透框画完后的回调（主窗口据此切回画笔，避免停在渗透工具上继续拖框） */
+  onPenetratePlaced?: () => void;
   timerText: string;
   onPageChange: (page: number) => void;
   onClear: () => void;
@@ -593,6 +595,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     onZoomSync,
     isTiffMode,
     penetrateNextUrl,
+    onPenetratePlaced,
     onPageChange,
     onClear,
     overlayMode = false,
@@ -603,6 +606,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgRef = useRef<HTMLImageElement | null>(null);
+  const penetrateImgRef = useRef<HTMLImageElement | null>(null);
   const customBoardRef = useRef<HTMLImageElement | null>(null);
   const redrawRef = useRef<() => void>(() => undefined);
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -764,6 +768,28 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     }
   }, [boardStyle, customBoardImage]);
 
+  // 渗透显示：下一页课件帧图片（预加载后由画布在框内绘制，笔迹才能盖在它上面）
+  useEffect(() => {
+    if (penetrateNextUrl) {
+      const img = new Image();
+      img.onload = () => {
+        penetrateImgRef.current = img;
+        redrawRef.current();
+      };
+      img.onerror = () => {
+        penetrateImgRef.current = null;
+        redrawRef.current();
+      };
+      img.src = penetrateNextUrl;
+      return () => {
+        if (penetrateImgRef.current === img) penetrateImgRef.current = null;
+      };
+    }
+    penetrateImgRef.current = null;
+    redrawRef.current();
+    return undefined;
+  }, [penetrateNextUrl]);
+
   const redraw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -844,6 +870,25 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
         }
       }
     }
+    // 渗透显示：框内透出下一页同位置内容。
+    // 必须画在 canvas 里（背景之上、笔迹之下），否则框内封面图会盖住刚写的板书，表现为「渗透框里写不上字」。
+    if (penetrateImgRef.current) {
+      const penImg = penetrateImgRef.current;
+      for (const s of pages[currentPage] ?? []) {
+        if (s.type !== 'penetrate') continue;
+        const bx0 = Math.min(s.x0, s.x1) * cw;
+        const bx1 = Math.max(s.x0, s.x1) * cw;
+        const by0 = Math.min(s.y0, s.y1) * ch;
+        const by1 = Math.max(s.y0, s.y1) * ch;
+        if (bx1 - bx0 < 1 || by1 - by0 < 1) continue;
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
+        ctx.clip();
+        ctx.drawImage(penImg, 0, 0, cw, ch);
+        ctx.restore();
+      }
+    }
     // 形状/笔迹绘制统一用画布物理尺寸（cw/ch）：归一化坐标 × 物理尺寸 = 屏幕位置，
     // 与书写光标位置一致（课件缩放后不再偏移）
     // 确认后文字：保持 textarea 显示（输入位置不变），canvas 不再重画该文字（其他文字正常绘制）
@@ -881,6 +926,22 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
         ctx.setLineDash([]);
         ctx.lineDashOffset = 0;
         ctx.restore();
+      } else if (draft.type === 'penetrate') {
+        // 拖拽中的渗透框：同样在画布内画下一页同位置内容（笔迹层级不冲突），虚线框由 DOM 层负责
+        if (penetrateImgRef.current) {
+          const bx0 = Math.min(draft.x0, draft.x1) * cw;
+          const bx1 = Math.max(draft.x0, draft.x1) * cw;
+          const by0 = Math.min(draft.y0, draft.y1) * ch;
+          const by1 = Math.max(draft.y0, draft.y1) * ch;
+          if (bx1 - bx0 >= 1 && by1 - by0 >= 1) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(bx0, by0, bx1 - bx0, by1 - by0);
+            ctx.clip();
+            ctx.drawImage(penetrateImgRef.current, 0, 0, cw, ch);
+            ctx.restore();
+          }
+        }
       } else {
         drawShape(ctx, draft, cw, ch);
       }
@@ -2260,6 +2321,10 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       return list.map((pg, i) => (i === currentPage ? [...pg, draft] : pg));
     });
     setDraft(null);
+    // 渗透框落定后回到画笔：否则工具停在「渗透显示」上，在画布上继续拖拽只会再画一个框，看起来就是「写不上字」
+    if (draft.type === 'penetrate' && Math.abs(draft.x1 - draft.x0) > 0.005 && Math.abs(draft.y1 - draft.y0) > 0.005) {
+      onPenetratePlaced?.();
+    }
   };
 
   const commitText = () => {
@@ -2499,9 +2564,10 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
                 onPointerUp={handleUp}
                 onPointerLeave={handleUp}
               />
-            {/* 渗透显示：当前页渗透框 + 拖拽中的草稿 —— 框内透出下一页课件对应位置（下一页图拉伸铺满画布尺寸，严格坐标对应）；无下一页时只显示边框 */}
+            {/* 渗透显示：框内下一页内容已由画布绘制（在笔迹之下，保证框内书写看得见）；
+                这里只渲染选中态的蓝色虚线包围盒 + 四角手柄 */}
             {(pages[currentPage] ?? []).map((s, idx) =>
-              s.type !== 'penetrate'
+              s.type !== 'penetrate' || selectedIdx !== idx
                 ? null
                 : (() => {
                       const px0 = Math.min(s.x0, s.x1) * contentW;
@@ -2509,16 +2575,13 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
                       const pw = Math.abs(s.x1 - s.x0) * contentW;
                       const ph = Math.abs(s.y1 - s.y0) * contentH;
                       if (pw < 1 || ph < 1) return null;
-                      const sel = selectedIdx === idx;
                       // 四角手柄：相对渗透框 div 的坐标（0,0 左上 → pw,ph 右下），渲染在框内不被 overflow 裁剪
-                      const corners: { x: number; y: number }[] = sel
-                        ? [
-                            { x: 0, y: 0 },
-                            { x: pw, y: 0 },
-                            { x: pw, y: ph },
-                            { x: 0, y: ph },
-                          ]
-                        : [];
+                      const corners: { x: number; y: number }[] = [
+                        { x: 0, y: 0 },
+                        { x: pw, y: 0 },
+                        { x: pw, y: ph },
+                        { x: 0, y: ph },
+                      ];
                       return (
                         <div
                           key={idx}
@@ -2528,31 +2591,15 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
                             top: py0,
                             width: pw,
                             height: ph,
-                            overflow: 'hidden',
-                            // 确认后无边框（只显示框内透出的下一页内容）；选中显示蓝色虚线高亮包围盒
-                            border: sel ? '1.5px dashed #1677ff' : 'none',
+                            overflow: 'visible',
+                            border: '1.5px dashed #1677ff',
                             boxSizing: 'border-box',
                             pointerEvents: 'none',
-                            zIndex: sel ? 4 : 5,
+                            zIndex: 6,
                           }}
                         >
-                          <div
-                            style={{
-                              position: 'absolute',
-                              left: -px0,
-                              top: -py0,
-                              width: contentW,
-                              height: contentH,
-                              backgroundImage: penetrateNextUrl ? `url(${penetrateNextUrl})` : undefined,
-                              backgroundSize: `${contentW}px ${contentH}px`,
-                              backgroundRepeat: 'no-repeat',
-                              // 内容层低于边框层（选中虚线边框/手柄始终显示在下一页内容之上）
-                              zIndex: 1,
-                            }}
-                          />
                           {/* 选中：四角缩放手柄（白底蓝框小方块） */}
-                          {sel &&
-                            corners.map((c, ci) => (
+                          {corners.map((c, ci) => (
                               <div
                                 key={ci}
                                 style={{
@@ -2614,19 +2661,6 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
                       border: '2px dashed #fff',
                       boxSizing: 'border-box',
                       zIndex: 3,
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: 'absolute',
-                      left: -px0,
-                      top: -py0,
-                      width: contentW,
-                      height: contentH,
-                      backgroundImage: penetrateNextUrl ? `url(${penetrateNextUrl})` : undefined,
-                      backgroundSize: `${contentW}px ${contentH}px`,
-                      backgroundRepeat: 'no-repeat',
-                      zIndex: 1,
                     }}
                   />
                 </div>
