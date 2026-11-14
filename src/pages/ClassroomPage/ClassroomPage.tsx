@@ -56,6 +56,7 @@ import {
   mimeForFile,
   saveCoursewareFile,
 } from '@/lib/courseware-files';
+import { updateCourse } from '@/api/desktop';
 import { pdfToImages } from '@/lib/pdf-to-images';
 import { decodeTiffDeferred, type TiffDeferred } from '@/lib/tiff-frames';
 import { pad2 } from '@/lib/dates';
@@ -2497,40 +2498,81 @@ export default function ClassroomPage() {
       toast.error('请先选择要删除的课件');
       return;
     }
-    // 从本课内容移除（course.files，随课程同步到云端）
+    const target = selectedCw;
+    // 该课件可能同时挂在三个来源下：本节课 course.files、本次课堂「添加课件」（addedCwIds）、
+    // 前节内容「加入本课」（lessonExtraIds）、本机目录「加入课堂」（localLessonIds）。
+    // 只删 course.files 的话，下面回写 course.files 的 effect 会立刻把这些来源里的同一份拼回来，
+    // 表现出来就是「删掉了，重新打开还在」。所以四个来源一起清。
+    setAddedCwIds((prev) => prev.filter((id) => id !== target.id));
+    setLessonExtraIds((prev) => prev.filter((id) => id !== target.id));
+    if (target.id.startsWith('local-')) {
+      setLocalLessonIds((prev) => prev.filter((id) => id !== target.id));
+      localNodeCacheRef.current.delete(target.id);
+    }
     if (course) {
+      // 从本课内容移除（course.files，随课程同步到云端）
+      const nextFiles = (course.files ?? []).filter((f) => f.id !== target.id);
       setData((prev) => ({
         ...prev,
         courses: prev.courses.map((c) =>
-          c.id === course.id
-            ? { ...c, files: (c.files ?? []).filter((f) => f.id !== selectedCw.id) }
-            : c,
+          c.id === course.id ? { ...c, files: nextFiles } : c,
         ),
       }));
+      // 已确认完成的课整包 sync 会跳过、不写这一行，只改本地的话刷新又拿回旧课件目录
+      // → 删除课件直接单条落库（该接口对已完成课同样生效）
+      void updateCourse({ ...course, files: nextFiles }).catch(() => undefined);
     }
-    // 本地课件（本机目录加入本课）：仅从本课列表移除，不删除磁盘文件
-    if (selectedCw.id.startsWith('local-')) {
-      setLocalLessonIds((prev) => prev.filter((id) => id !== selectedCw.id));
-      localNodeCacheRef.current.delete(selectedCw.id);
-      setCwSelId(null);
-      toast.success('已从本课内容移除');
-      return;
+    if (!target.id.startsWith('local-')) {
+      if (target.file) {
+        deleteCoursewareFile(target.id).catch(() => undefined);
+      }
+      // 找到课件所在分支并删除
+      const branchKey = Object.entries(data.courseware).find(([, ns]) =>
+        allFiles(ns).some((f) => f.id === target.id),
+      )?.[0];
+      if (branchKey) {
+        setData((prev) => ({
+          ...prev,
+          courseware: {
+            ...prev.courseware,
+            [branchKey]: removeNode(prev.courseware[branchKey] ?? [], target.id),
+          },
+        }));
+      }
     }
-    if (selectedCw.file) {
-      deleteCoursewareFile(selectedCw.id).catch(() => undefined);
+    // 清掉「这节课最后打开的是哪份」与「该学员上次打开的本地课件」记录：
+    // 否则重进课堂时这两处记录会把刚删掉的这份按路径/id 重新打开，看起来就是删不掉
+    const boardRec = readJson<LastBoardRec>(`skey_last_board_${cwPersistKey}`);
+    const deletedPath = target.file?.path;
+    if (
+      boardRec &&
+      ((boardRec.id && boardRec.id === target.id) ||
+        (deletedPath && boardRec.path === deletedPath))
+    ) {
+      try {
+        localStorage.removeItem(`skey_last_board_${cwPersistKey}`);
+      } catch {
+        /* 忽略存储异常 */
+      }
+      if (boardRec.key) {
+        delete pageMemRef.current[boardRec.key];
+        try {
+          localStorage.setItem(`skey_pages_${cwPersistKey}`, JSON.stringify(pageMemRef.current));
+        } catch {
+          /* 忽略存储异常 */
+        }
+      }
     }
-    // 找到课件所在分支并删除
-    const branchKey = Object.entries(data.courseware).find(([, ns]) =>
-      allFiles(ns).some((f) => f.id === selectedCw.id),
-    )?.[0];
-    if (branchKey) {
-      setData((prev) => ({
-        ...prev,
-        courseware: {
-          ...prev.courseware,
-          [branchKey]: removeNode(prev.courseware[branchKey] ?? [], selectedCw.id),
-        },
-      }));
+    const lastLocal = lastLocalRec();
+    if (lastLocal && deletedPath && lastLocal.path === deletedPath) {
+      // 只清文件与页码，保留所属目录/版本/年级/学期，下次仍落回同一个目录
+      writeJson(`skey_local_last_${studentId}`, {
+        ...lastLocal,
+        path: undefined,
+        name: undefined,
+        page: undefined,
+        ts: Date.now(),
+      });
     }
     setCwSelId(null);
     toast.success('课件已删除');
