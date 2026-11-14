@@ -124,13 +124,18 @@ export function snapOfBusiness(payload: IAppData): string {
  */
 export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
   const key = (c: ICourse) => `${c.studentId}|${c.date}|${c.start}`;
+  // 同一节课的身份优先按课程 id（_fid）：课程被改过学员/日期/时间后 key 会变，
+  // 若只按 key 合并，云端那条旧行会被当成「手机端新建的课次」塞回本地，
+  // 再随 sync 传回服务器 → 改完原课程又出现。缺 id 的老数据才退回 key。
+  const ident = (c: ICourse) => (c.id ? `id:${c.id}` : `k:${key(c)}`);
   const localKeys = new Set(local.map(key));
-  const remoteByKey = new Map(remote.map((c) => [key(c), c]));
+  const localIdents = new Set(local.map(ident));
+  const remoteByIdent = new Map(remote.map((c) => [ident(c), c]));
   // 已有课程：总结冲突按修改时间戳较新优先（手机端/桌面端保存时都会带 _t）
   //  - 都无 _t：以本地为准（桌面端编辑优先，不回写旧值）
   //  - 只有一方有 _t：有 _t 的一方较新（旧数据补上时间戳后视为更新）
   const merged = local.map((lc) => {
-    const rc = remoteByKey.get(key(lc));
+    const rc = remoteByIdent.get(ident(lc));
     if (!rc) return lc;
     const ls = lc.summary;
     const rs = rc.summary;
@@ -145,10 +150,9 @@ export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
     return { ...lc, summary: rs };
   });
   for (const rc of remote) {
-    const k = key(rc);
-    if (!localKeys.has(k)) {
-      merged.push(rc); // 手机端新建的课次
-    }
+    if (localIdents.has(ident(rc))) continue; // 同一节课：已由本地版本取代，不复活云端旧行
+    if (localKeys.has(key(rc))) continue; // 本地已有同一时段同一学员的课，避免重复
+    merged.push(rc); // 手机端新建的课次
   }
   // 排序：按日期+时间
   merged.sort((a, b) => (a.date + a.start).localeCompare(b.date + b.start));
@@ -181,6 +185,20 @@ export async function setCourseDone(fid: string, done: boolean): Promise<{ ok: b
   const r = await api('/api/desktop/course-done', { method: 'POST', body: { fid, done } });
   if (!r.ok) {
     console.error('[cloud] 更新完成状态失败：', r.error?.message);
+    return { ok: false, message: r.error?.message };
+  }
+  return { ok: true };
+}
+
+/** 单条修改课次（学员 / 日期 / 开始时间 / 时长）——立即写服务器。
+ *  整包 sync 对“已确认完成”的课只保留原行、不重插，所以已完成课必须走这条单条接口才改得动；
+ *  未完成课也用它，避免整包 sync 把云端旧行合并回来后“原课程又出现”。 */
+export async function updateCourse(
+  course: ICourse,
+): Promise<{ ok: boolean; message?: string }> {
+  const r = await api('/api/desktop/course-update', { method: 'POST', body: { course } });
+  if (!r.ok) {
+    console.error('[cloud] 修改课程失败：', r.error?.message);
     return { ok: false, message: r.error?.message };
   }
   return { ok: true };

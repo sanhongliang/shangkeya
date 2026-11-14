@@ -27,7 +27,7 @@ import ClassSummaryDialog from '@/components/ClassSummaryDialog';
 import { useAppData } from '@/data/app-store';
 import type { ICourse, IScheduleItem, ISummary, IStudent } from '@/data/types';
 import { api } from '@/api/client';
-import { loadCloudState, syncCloudState, markLastSyncedSnap, snapOfBusiness, setCourseDone } from '@/api/desktop';
+import { loadCloudState, syncCloudState, markLastSyncedSnap, snapOfBusiness, setCourseDone, updateCourse } from '@/api/desktop';
 import { addDays, pad2, startOfWeek, toISO, WEEKDAYS_CN } from '@/lib/dates';
 import { openClassroomWindow } from '@/lib/classroom-window';
 import { cn } from '@/lib/utils';
@@ -211,20 +211,30 @@ export default function SchedulePage() {
     toast.success('课程已删除');
   };
 
-  const saveEditedItem = (values: EditScheduleValues) => {
-    if (!selectedCourse) return;
+  const saveEditedItem = async (values: EditScheduleValues): Promise<boolean> => {
+    if (!selectedCourse) return false;
     const start = `${pad2(values.startHour)}:${pad2(values.startMin)}`;
     const d = new Date(`${values.date}T00:00:00`);
     const endTotal = values.startHour * 60 + values.startMin + values.durationMin;
     const sh = parseInt(selectedCourse.start.slice(0, 2), 10) || 0;
     const sm = parseInt(selectedCourse.start.slice(3, 5), 10) || 0;
+    // 先写服务器单条接口：整包 sync 对已完成课只保留原行、不重插，
+    // 只改本地的话刷新后原课程会回来（改了个寂寞）
+    const nextCourse = {
+      ...selectedCourse,
+      studentId: values.studentId,
+      date: values.date,
+      start,
+      durationMin: values.durationMin,
+    };
+    const r = await updateCourse(nextCourse);
+    if (!r.ok) {
+      toast.error(r.message ?? '修改失败，请稍后重试');
+      return false;
+    }
     setData((prev) => ({
       ...prev,
-      courses: prev.courses.map((c) =>
-        c.id === selectedCourse.id
-          ? { ...c, studentId: values.studentId, date: values.date, start, durationMin: values.durationMin }
-          : c,
-      ),
+      courses: prev.courses.map((c) => (c.id === selectedCourse.id ? nextCourse : c)),
       schedule: prev.schedule.map((k) =>
         k.studentId === selectedCourse.studentId && k.date === selectedCourse.date && k.startHour === sh && k.startMin === sm
           ? {
@@ -240,6 +250,7 @@ export default function SchedulePage() {
           : k,
       ),
     }));
+    return true;
   };
 
   const confirmDone = async () => {

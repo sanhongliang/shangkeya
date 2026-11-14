@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -533,7 +533,7 @@ export interface EditScheduleDialogProps {
   students: IStudent[];
   courses: ICourse[];
   item: ICourse | null;
-  onSave: (values: EditScheduleValues) => void;
+  onSave: (values: EditScheduleValues) => Promise<boolean> | boolean;
 }
 
 export function EditScheduleDialog({ open, onOpenChange, students, courses, item, onSave }: EditScheduleDialogProps) {
@@ -545,6 +545,24 @@ export function EditScheduleDialog({ open, onOpenChange, students, courses, item
   const [durOpen, setDurOpen] = useState(false);
   const [hOpen, setHOpen] = useState(false);
   const [mOpen, setMOpen] = useState(false);
+  // 受控 Dialog 由外部翻 open 时不会触发 onOpenChange，字段必须自己按当前课程回填，
+  // 否则学员/日期/时间会停在上一次的残留值（表现为“默认学员变成别的学员”）
+  const filledForRef = useRef<string>('');
+
+  useEffect(() => {
+    if (!open) {
+      filledForRef.current = '';
+      return;
+    }
+    if (!item || filledForRef.current === item.id) return;
+    filledForRef.current = item.id;
+    const sid = students.some((s) => s.id === item.studentId) ? item.studentId : (students[0]?.id ?? '');
+    setStudentId(sid);
+    setDate(item.date);
+    setStartHour(item.start.slice(0, 2));
+    setStartMin(item.start.slice(3, 5));
+    setDurationMin(String(item.durationMin || 60));
+  }, [open, item, students]);
 
   const bumpDur = (delta: number) => {
     const cur = durationMin === '' ? 60 : Number(durationMin);
@@ -570,7 +588,7 @@ export function EditScheduleDialog({ open, onOpenChange, students, courses, item
     setStartMin(String(next));
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     if (!studentId) {
       toast.error('请选择学员');
       return;
@@ -599,7 +617,14 @@ export function EditScheduleDialog({ open, onOpenChange, students, courses, item
       toast.error(`时间冲突：${labels.slice(0, 3).join('、')}${labels.length > 3 ? ' 等' : ''}`);
       return;
     }
-    onSave({ studentId, date, startHour: h, startMin: mi, durationMin: d });
+    let ok: boolean | void = true;
+    try {
+      ok = await onSave({ studentId, date, startHour: h, startMin: mi, durationMin: d });
+    } catch {
+      toast.error('修改失败，请稍后重试');
+      return;
+    }
+    if (ok === false) return; // 没写进服务器：保留弹窗让用户重试，不能假装改成功
     onOpenChange(false);
     toast.success('课程已修改');
   };
@@ -607,16 +632,7 @@ export function EditScheduleDialog({ open, onOpenChange, students, courses, item
   return (
     <Dialog
       open={open}
-      onOpenChange={(v) => {
-        if (v && item) {
-          setStudentId(item.studentId);
-          setDate(item.date);
-          setStartHour(item.start.slice(0, 2));
-          setStartMin(item.start.slice(3, 5));
-          setDurationMin(String(item.durationMin || 60));
-        }
-        onOpenChange(v);
-      }}
+      onOpenChange={onOpenChange}
     >
       <DialogContent className="sm:max-w-[360px]">
         <DialogHeader>
