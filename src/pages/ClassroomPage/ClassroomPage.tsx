@@ -8,6 +8,7 @@ import type { WebviewWindow as WebviewWindowType } from '@tauri-apps/api/webview
 import {
   CalendarDays,
   ChevronRight,
+  CornerDownRight,
   Download,
   FileText,
   Loader2,
@@ -164,6 +165,54 @@ interface ImportResult {
   ok: boolean;
   message: string;
   versions: ImportedVersion[];
+}
+
+/** 每节课「最后打开的黑板内容」：课件库按 id、本机目录按路径，都带停留页码 */
+interface LastBoardRec {
+  key: string;
+  id?: string;
+  path?: string;
+  name?: string;
+  page?: number;
+  ts?: number;
+}
+
+/** 每个学员「上次打开的本地课件」：路径 + 停留页码 + 所属课件目录/版本/年级/学期 */
+interface LocalLastRec {
+  path?: string;
+  name?: string;
+  root?: string;
+  ver?: string;
+  grade?: string;
+  sem?: string;
+  page?: number;
+  ts?: number;
+}
+
+function readJson<T>(key: string): T | null {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? (JSON.parse(raw) as T) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeJson(key: string, value: unknown) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    /* 本机存储配额不足时忽略 */
+  }
+}
+
+/** 路径 → 本地课件节点的 kind（loadLocalFile 按 kind 决定解析方式） */
+function kindOfPath(p: string): string {
+  return p.split('.').pop()?.toLowerCase() ?? '';
+}
+
+function baseName(p: string): string {
+  return p.split(/[\\/]/).pop() || p;
 }
 
 export default function ClassroomPage() {
@@ -472,6 +521,46 @@ export default function ClassroomPage() {
     return before.find((c) => (c.files?.length ?? 0) > 0) ?? null;
   }, [sameStudentCourses, curKey]);
   const prevFiles = prevCourseWithFiles?.files ?? [];
+
+  /** 该学员「上次打开的本地课件」记录：路径 + 停留页码 + 所属目录/版本/年级/学期 */
+  const lastLocalRec = (): LocalLastRec | null =>
+    studentId ? readJson<LocalLastRec>(`skey_local_last_${studentId}`) : null;
+  /** 本机课件的打开页码：先看本节课自己的记忆，没有就接着该学员上次打开同一份的页码。
+   *  （换课、换天、从上节课导入时都能落回上次讲到的那一页，而不是从第一页重开） */
+  const pageMemGetLocal = (path: string): number => {
+    const cur = pageMemGet(`local:${path}`);
+    if (cur > 0) return cur;
+    const last = lastLocalRec();
+    if (
+      last &&
+      last.path === path &&
+      typeof last.page === 'number' &&
+      Number.isFinite(last.page) &&
+      last.page > 0
+    ) {
+      return Math.floor(last.page);
+    }
+    return 0;
+  };
+  /** 云端课件（课件库）的打开页码：先看本节课记忆，没有就接着上节课同一份课件的页码 */
+  const pageMemGetCw = (id: string): number => {
+    const cur = pageMemGet(id);
+    if (cur > 0) return cur;
+    const prevPages =
+      readJson<Record<string, number>>(`skey_pages_${prevCourseWithFiles?.id ?? 'none'}`) ?? {};
+    const v = prevPages[id];
+    return typeof v === 'number' && Number.isFinite(v) && v > 0 ? Math.floor(v) : 0;
+  };
+  /** 把页码写进本节课的页码记忆并落盘（打开逻辑只认这份记忆，跨课衔接要先写进来） */
+  const pageMemSet = (key: string, value: number) => {
+    if (!(value > 0)) return;
+    pageMemRef.current[key] = Math.floor(value);
+    try {
+      localStorage.setItem(`skey_pages_${cwPersistKey}`, JSON.stringify(pageMemRef.current));
+    } catch {
+      /* 忽略存储异常 */
+    }
+  };
   const prevIds = new Set(prevFiles.map((f) => f.id));
   const localLessonNodes = localLessonIds
     .map((id) => localNodeCacheRef.current.get(id))
@@ -519,10 +608,57 @@ export default function ClassroomPage() {
     return sameStudentCourses.filter((c) => c.date <= today);
   }, [sameStudentCourses]);
 
-  // 进入课堂默认显示黑板空白页：不自动恢复上次打开的课件（保留写入，供手动恢复场景使用）
+  // 每节课「最后打开的内容」：切课件/翻页时记录（课件库按 id、本机目录按路径，都带页码），
+  // 重进这节课时按这份记录直接回到上次讲到的那一份、那一页（见下面的恢复逻辑）
+  const lessonFilesRef = useRef<ICourseNode[]>([]);
+  lessonFilesRef.current = lessonFiles;
   useEffect(() => {
-    if (cwSelId) localStorage.setItem('skey_last_open_cw', cwSelId);
-  }, [cwSelId]);
+    if (boardContentKey === 'plain') return;
+    const name = currentOpenPath
+      ? lessonFilesRef.current.find((f) => f.file?.path === currentOpenPath)?.name ??
+        localNodeCacheRef.current.get(`local-${currentOpenPath}`)?.name ??
+        baseName(currentOpenPath)
+      : lessonFilesRef.current.find((f) => f.id === cwSelId)?.name;
+    const rec: LastBoardRec = {
+      key: boardContentKey,
+      id: cwSelId ?? undefined,
+      path: currentOpenPath ?? undefined,
+      name,
+      page,
+      ts: Date.now(),
+    };
+    const t = window.setTimeout(() => {
+      writeJson(`skey_last_board_${cwPersistKey}`, rec);
+      if (cwSelId) localStorage.setItem('skey_last_open_cw', cwSelId);
+      // 本机课件：同步「该学员上次打开的本地课件路径 + 位置」及其所属目录/版本/年级/学期
+      if (currentOpenPath) {
+        const prev = readJson<LocalLastRec>(`skey_local_last_${studentId}`) ?? {};
+        writeJson(`skey_local_last_${studentId}`, {
+          ...prev,
+          path: currentOpenPath,
+          name,
+          root: curRoot ?? prev.root,
+          ver: selVer ?? prev.ver,
+          grade: selGrade ?? prev.grade,
+          sem: selSem ?? prev.sem,
+          page,
+          ts: Date.now(),
+        });
+      }
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [
+    boardContentKey,
+    page,
+    cwSelId,
+    currentOpenPath,
+    cwPersistKey,
+    studentId,
+    curRoot,
+    selVer,
+    selGrade,
+    selSem,
+  ]);
 
   // 持久化：前节内容加入本课的课件 id（按课程隔离）
   useEffect(() => {
@@ -564,6 +700,55 @@ export default function ClassroomPage() {
     }
   };
 
+  /** 从上节课导入：优先取上节课里与该学员「上次打开的本地课件」同路径（或同名）的那一份，
+   *  直接打开到黑板并定位到上次停留的页码；没有记录就取上节课第一份 */
+  const importFromPrev = () => {
+    if (prevFiles.length === 0) {
+      toast.error('上节课没有可导入的课件');
+      return;
+    }
+    const last = lastLocalRec();
+    const target =
+      (last?.path ? prevFiles.find((f) => f.file?.path === last.path) : undefined) ??
+      (last?.name ? prevFiles.find((f) => f.name === last.name) : undefined) ??
+      prevFiles[0];
+    if (!target) {
+      toast.error('上节课没有可导入的课件');
+      return;
+    }
+    // 接着上次讲到的那一页：打开逻辑只读「本节课」的页码记忆，所以先把上节课/该学员
+    // 记录的页码写进本节课，再打开（否则会从第一页重开，等于没接上）
+    const targetKey = target.file?.path ? `local:${target.file.path}` : target.id;
+    const prevPages =
+      readJson<Record<string, number>>(`skey_pages_${prevCourseWithFiles?.id ?? 'none'}`) ?? {};
+    const fromLast =
+      last && (last.path === target.file?.path || last.name === target.name) ? last.page : undefined;
+    const fromPrev = prevPages[targetKey];
+    const want = Math.max(
+      typeof fromLast === 'number' && Number.isFinite(fromLast) ? Math.floor(fromLast) : 0,
+      typeof fromPrev === 'number' && Number.isFinite(fromPrev) ? Math.floor(fromPrev) : 0,
+    );
+    pageMemSet(targetKey, want);
+    setPrevSelId(target.id);
+    if (target.file?.path) {
+      // 本机目录课件：加入本课并按原路径打开，页码按路径记忆恢复
+      addLocalNodeToLesson({ name: target.name, path: target.file.path });
+      void loadLocalFile({
+        name: target.name,
+        path: target.file.path,
+        kind: kindOfPath(target.name),
+      });
+      toast.success(`已接着上次讲到的地方打开：${target.name}`);
+      return;
+    }
+    if (!lessonExtraIds.includes(target.id)) {
+      setLessonExtraIds((prev) => (prev.includes(target.id) ? prev : [...prev, target.id]));
+    }
+    if (target.file && /\.(pdf|tiff?)$/i.test(target.file.name)) void preparseCourseware(target);
+    setCwSelId(target.id);
+    toast.success(`已接着上次讲到的地方打开：${target.name}`);
+  };
+
   // 桌面端：加载本机目录里的课件文件（tiff 图集 → 逐帧；pdf → 图片组；图片 → 单张）
   const loadLocalFile = async (node: LocalCwNode) => {
     if (node.children) return;
@@ -587,7 +772,7 @@ export default function ClassroomPage() {
         if (deferred.frames[0]) setTiffAspect(deferred.frames[0].width / deferred.frames[0].height);
         setTiffPageUrl(null);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(pageMemGet(node.path));
+        setPage(pageMemGetLocal(node.path));
         // 跳过课件首页（设置项开启）：首页不是问题页 → 直接跳过，不做文字识别
         if (
           data.settings.skipCoursewareHome &&
@@ -604,14 +789,14 @@ export default function ClassroomPage() {
         const imgs = await pdfToImages(new Blob([buf], { type: 'application/pdf' }));
         setPdfImages(imgs);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(pageMemGet(node.path));
+        setPage(pageMemGetLocal(node.path));
         toast.success(`已加载 PDF 共 ${imgs.length} 页`);
       } else {
         const blob = new Blob([buf]);
         const url = URL.createObjectURL(blob);
         setPdfImages([url]);
         setPdfForId(TIFF_IMPORT_ID);
-        setPage(pageMemGet(node.path));
+        setPage(pageMemGetLocal(node.path));
         toast.success('已加载图片课件');
       }
     } catch (e) {
@@ -633,6 +818,17 @@ export default function ClassroomPage() {
 
   const loadImpRoot = async (path: string) => {
     setCurRoot(path);
+    // 该学员的课件目录选择同步进「上次打开」记录（下次进课堂直接落回这个目录）
+    const prevLast = readJson<LocalLastRec>(`skey_local_last_${studentId}`) ?? {};
+    if (prevLast.root !== path) {
+      writeJson(`skey_local_last_${studentId}`, { ...prevLast, root: path, ts: Date.now() });
+    }
+    // 目录下拉的「上次选的目录」也同步一份：下次进该学员课堂时两者指向同一个目录
+    try {
+      localStorage.setItem(`skey_imp_root_${studentId}`, path);
+    } catch {
+      /* 忽略存储异常 */
+    }
     if (!tauriMode) {
       toast.error('本机课件目录仅桌面版（EXE）可用');
       return;
@@ -644,13 +840,20 @@ export default function ClassroomPage() {
       setImpTree(res.versions);
       const vers = res.versions.map((v) => v.version);
       setVerList(vers);
-      setSelVer(vers[0] ?? null);
-      const v0 = res.versions[0];
-      setGradeList(v0?.grades.map((g) => g.grade) ?? []);
-      setSelGrade(v0?.grades[0]?.grade ?? null);
-      const g0 = v0?.grades[0];
-      setSemList(g0?.semesters.map((s) => s.semester) ?? []);
-      setSelSem(g0?.semesters[0]?.semester ?? null);
+      // 该学员上次打开过就沿用上次的 版本/年级/学期（目录没变时直接落回同一分支）
+      const last = readJson<LocalLastRec>(`skey_local_last_${studentId}`) ?? {};
+      const vSel = last.ver && vers.includes(last.ver) ? last.ver : (vers[0] ?? null);
+      setSelVer(vSel);
+      const v0 = res.versions.find((v) => v.version === vSel) ?? res.versions[0];
+      const grades = v0?.grades.map((g) => g.grade) ?? [];
+      setGradeList(grades);
+      const gSel = last.grade && grades.includes(last.grade) ? last.grade : (grades[0] ?? null);
+      setSelGrade(gSel);
+      const g0 = v0?.grades.find((g) => g.grade === gSel) ?? v0?.grades[0];
+      const sems = g0?.semesters.map((s) => s.semester) ?? [];
+      setSemList(sems);
+      const sSel = last.sem && sems.includes(last.sem) ? last.sem : (sems[0] ?? null);
+      setSelSem(sSel);
       setImpOpenMap({});
       if (res.versions.length === 0) toast.info('该目录下未发现课件文件');
     } catch (e) {
@@ -677,6 +880,68 @@ export default function ClassroomPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roots]);
 
+  // 切换 版本/年级/学期 后树内容变了：展开状态回到默认（只展开第一个根目录），避免沿用上一棵树的状态
+  // 必须排在下面的「定位上次打开的文件」之前，否则刚展开的层级会被这里清空
+  useEffect(() => {
+    setImpOpenMap({});
+  }, [selVer, selGrade, selSem]);
+
+  // 本机目录 tab：回到该学员上次打开的那份课件——逐级展开到它并选中（不打开到黑板）
+  const impLocateRef = useRef('');
+  useEffect(() => {
+    if (!impTree || !tauriMode) return;
+    const last = readJson<LocalLastRec>(`skey_local_last_${studentId}`);
+    if (!last?.path) return;
+    const stamp = `${studentId}|${selVer}|${selGrade}|${selSem}|${last.path}`;
+    if (impLocateRef.current === stamp) return;
+    impLocateRef.current = stamp;
+    const sem =
+      impTree
+        .find((v) => v.version === selVer)
+        ?.grades.find((g) => g.grade === selGrade)
+        ?.semesters.find((s) => s.semester === selSem) ?? null;
+    if (!sem) return;
+    // key 规则与 renderImpTree 完全一致，否则展开状态对不上
+    const walk = (ns: ImportedNode[], prefix: string): { keys: string[]; node: ImportedNode } | null => {
+      for (let i = 0; i < ns.length; i++) {
+        const n = ns[i];
+        const key = `${prefix}/n:${i}-${n.name}`;
+        if (n.children) {
+          const hit = walk(n.children, key);
+          if (hit) return { keys: [key, ...hit.keys], node: hit.node };
+        } else if (n.path && n.path === last.path) {
+          return { keys: [], node: n };
+        }
+      }
+      return null;
+    };
+    const hit = walk(sem.nodes, '');
+    if (!hit) return;
+    setImpOpenMap((prev) => {
+      const next = { ...prev };
+      for (const k of hit.keys) next[k] = true;
+      return next;
+    });
+    setSelImpNode(hit.node);
+  }, [impTree, selVer, selGrade, selSem, studentId, tauriMode]);
+
+  // 本机目录 tab 的 版本/年级/学期 选择按学员保存（下次进该学员课堂直接落回同一分支）
+  useEffect(() => {
+    if (!studentId) return;
+    const prev = readJson<LocalLastRec>(`skey_local_last_${studentId}`) ?? {};
+    const v = selVer ?? undefined;
+    const g = selGrade ?? undefined;
+    const s = selSem ?? undefined;
+    if (prev.ver === v && prev.grade === g && prev.sem === s) return;
+    writeJson(`skey_local_last_${studentId}`, {
+      ...prev,
+      ver: v ?? prev.ver,
+      grade: g ?? prev.grade,
+      sem: s ?? prev.sem,
+      ts: Date.now(),
+    });
+  }, [selVer, selGrade, selSem, studentId]);
+
   const pickVer = (v: string) => {
     setSelVer(v);
     const ver = impTree?.find((x) => x.version === v) ?? null;
@@ -700,11 +965,6 @@ export default function ClassroomPage() {
       ?.find((v) => v.version === selVer)
       ?.grades.find((g) => g.grade === selGrade)
       ?.semesters.find((s) => s.semester === selSem) ?? null;
-
-  // 切换 版本/年级/学期 后树内容变了：展开状态回到默认（只展开第一个根目录），避免沿用上一棵树的状态
-  useEffect(() => {
-    setImpOpenMap({});
-  }, [selVer, selGrade, selSem]);
 
   /** 渲染导入的 章节/文件 层（默认只展开第一个根目录、点一下可收起；点文件 → 仅选中，点「加入课堂」才打开） */
   const renderImpTree = (ns: ImportedNode[], depth: number, prefix: string) =>
@@ -787,6 +1047,73 @@ export default function ClassroomPage() {
       if (cached) void preparseCourseware(cached);
     }
   };
+
+  // 重进本节课：恢复上次打开的那份课件与停留页码（本机课件按原路径静默重新加载）
+  // 每节课一份记录，只在首次进入时恢复一次；之后用户主动切换课件不再被覆盖
+  const boardRestoredRef = useRef(false);
+  const boardRestoreTriesRef = useRef(0);
+  useEffect(() => {
+    if (boardRestoredRef.current) return;
+    const rec = readJson<LastBoardRec>(`skey_last_board_${cwPersistKey}`);
+    if (!rec) {
+      // 本节课第一次进来：接着该学员上次打开的那份本机课件，直接加载到上次那一页
+      // （同一个学员换到新的一节课，不用再从目录树里翻找他上次讲到哪）
+      boardRestoredRef.current = true;
+      if (!tauriMode) return;
+      const last = lastLocalRec();
+      if (!last?.path) return;
+      const path = last.path;
+      const name = last.name || baseName(path);
+      void (async () => {
+        try {
+          const { exists } = await import('@tauri-apps/plugin-fs');
+          if (!(await exists(path))) return; // 文件被移动/删除就不自动打开，保持黑板空白
+          const id = `local-${path}`;
+          localNodeCacheRef.current.set(id, {
+            id,
+            name,
+            type: 'file',
+            file: { name, size: 0, mime: mimeForFile(name), path },
+          });
+          setLocalLessonIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+          void loadLocalFile({ name, path, kind: kindOfPath(name) });
+          toast.success(`已接着上次讲到的地方打开：${name}`);
+        } catch {
+          /* 读不到就保持空白，不打扰上课 */
+        }
+      })();
+      return;
+    }
+    // 本机目录课件：文件还在原路径就按路径重开（页码按 `local:<路径>` 记录恢复）
+    if (rec.path) {
+      boardRestoredRef.current = true;
+      if (!tauriMode) return;
+      const name = rec.name || baseName(rec.path);
+      const id = `local-${rec.path}`;
+      localNodeCacheRef.current.set(id, {
+        id,
+        name,
+        type: 'file',
+        file: { name, size: 0, mime: mimeForFile(name), path: rec.path },
+      });
+      setLocalLessonIds((prev) => (prev.includes(id) ? prev : [...prev, id]));
+      void loadLocalFile({ name, path: rec.path, kind: kindOfPath(name) });
+      return;
+    }
+    if (!rec.id) {
+      boardRestoredRef.current = true;
+      return;
+    }
+    // 课件库课件：只有本节课/历史课程里确实还有这份时才恢复（课件被清掉就保持黑板空白）
+    if (!lessonFiles.some((f) => f.id === rec.id)) {
+      // 数据还没加载到就等下一轮；试到一定次数仍没有（课件已删除）就放弃，避免白跑
+      boardRestoreTriesRef.current += 1;
+      if (boardRestoreTriesRef.current > 30) boardRestoredRef.current = true;
+      return;
+    }
+    boardRestoredRef.current = true;
+    setCwSelId(rec.id);
+  }, [lessonFiles, cwPersistKey, tauriMode]);
 
   /** 加入课堂：把选中的本机课件加入本课课件列表（未选中时按钮置灰） */
   const addToClassroom = () => {
@@ -913,7 +1240,7 @@ export default function ClassroomPage() {
           // 后台预解析缓存命中：直接显示，不重新解析
           setPdfImages(cached);
           setPdfForId(sel.id);
-          setPage(pageMemGet(sel.id));
+          setPage(pageMemGetCw(sel.id));
         } else {
           loadCoursewareBlob(sel)
             .then(async (blob) => {
@@ -923,7 +1250,7 @@ export default function ClassroomPage() {
               if (cancelled) return;
               setPdfImages(imgs);
               setPdfForId(sel.id);
-              setPage(pageMemGet(sel.id));
+              setPage(pageMemGetCw(sel.id));
             })
             .catch((e) => toast.error('PDF 解析失败：' + (e instanceof Error ? e.message : String(e))))
             .finally(() => {
@@ -944,7 +1271,7 @@ export default function ClassroomPage() {
           if (deferred.frames[0]) setTiffAspect(deferred.frames[0].width / deferred.frames[0].height);
           setTiffPageUrl(null);
           setPdfForId(sel.id);
-          setPage(pageMemGet(sel.id));
+          setPage(pageMemGetCw(sel.id));
         };
         if (cached) {
           void useCached(cached);
@@ -969,7 +1296,7 @@ export default function ClassroomPage() {
             url = URL.createObjectURL(blob);
             setPdfImages([url]);
             setPdfForId(sel.id);
-            setPage(pageMemGet(sel.id));
+            setPage(pageMemGetCw(sel.id));
           })
           .catch(() => toast.error('课件文件读取失败'));
       } else if (kind === 'ppt') {
@@ -986,7 +1313,7 @@ export default function ClassroomPage() {
         // 视频/音频课件：读取文件 → 播放器（黑板窗口 overlay，浏览器模式课堂占位区显示）
         setPdfImages(null);
         setPdfForId(sel.id);
-        setPage(pageMemGet(sel.id));
+        setPage(pageMemGetCw(sel.id));
         loadCoursewareBlob(sel)
           .then((blob) => {
             if (cancelled || !blob) return;
@@ -1007,7 +1334,7 @@ export default function ClassroomPage() {
         // HTML 网页课件：读取内容 → iframe overlay 全幅显示（黑板窗口 overlay，浏览器模式课堂占位区显示）
         setPdfImages(null);
         setPdfForId(sel.id);
-        setPage(pageMemGet(sel.id));
+        setPage(pageMemGetCw(sel.id));
         loadCoursewareBlob(sel)
           .then(async (blob) => {
             if (cancelled || !blob) return;
@@ -3038,6 +3365,17 @@ export default function ClassroomPage() {
                     加入本课
                   </Button>
                 </div>
+                {/* 一键接着上节课：自动定位到该学员上次打开的那份课件与停留页码 */}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="mb-1.5 h-6 w-full gap-1 px-2 text-xs"
+                  disabled={prevFiles.length === 0}
+                  onClick={importFromPrev}
+                >
+                  <CornerDownRight className="h-3 w-3" />
+                  从上节课导入（接着上次讲到的地方）
+                </Button>
 
                 {/* 历史课程记录：首层=课程内容（无内容用第一个课件标题），展开显示课件标题 */}
                 <div className="mb-[15px] flex min-h-0 flex-1 flex-col">
