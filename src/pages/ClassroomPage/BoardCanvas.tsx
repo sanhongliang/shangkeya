@@ -208,13 +208,13 @@ function drawBrushStroke(
 ) {
   const raw = s.points;
   if (!raw.length) return;
-  // 笔宽基准：细/中/粗 → 3/4.5/6.5 逻辑像素（整体再细一档，评讲批注不糊版）
-  const base = s.size <= 1 ? 3 : s.size === 2 ? 4.5 : 6.5;
+  // 笔宽基准：细/中/粗 → 2.2/3.2/4.5 逻辑像素（钢笔级细度；笔锋靠相对速度的宽度场撑起来）
+  const base = s.size <= 1 ? 2.2 : s.size === 2 ? 3.2 : 4.5;
   const P = raw.map((p) => ({ x: p.x * w, y: p.y * h, t: p.t, p: p.p }));
   ctx.fillStyle = s.color;
   const dot = (x: number, y: number) => {
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(1, base * 0.3), 0, Math.PI * 2);
+    ctx.arc(x, y, Math.max(0.9, base * 0.28), 0, Math.PI * 2);
     ctx.fill();
   };
   if (P.length === 1) {
@@ -271,10 +271,12 @@ function drawBrushStroke(
     total += Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
     acc[i] = total;
   }
-  // ---- 速度指标 si：0 表示停住 / 驻笔，1 表示快速划过 ——
-  // 优先用「位移 / 时间」换算真实笔速（逻辑像素/毫秒）：与鼠标 / 触屏 / 数位板的采样率、帧率无关，
-  // 鼠标高频采样时也不会因为点间距小就整笔一样粗；历史笔迹没有时间戳时退回点间距法。
+  // ---- 速度指标 si：0 = 本笔最慢处，1 = 本笔最快处 ——「相对速度」，不是绝对 px/ms ----
+  // 先用「位移 / 时间」算真实笔速（与采样率无关），再按这一笔自己的速度分布归一化：
+  // 写得慢也好写得快也好，只要笔内有起落快慢，粗细差就照常出来，慢写不会整笔一样粗。
+  // 整笔速度过于均匀时自动收窄对比（否则匀速直线会被手抖噪声放大成波浪）。
   const si = new Array<number>(m).fill(0.5);
+  const spd = new Array<number>(m).fill(0);
   let timed = 0;
   for (let i = 1; i < m; i += 1) {
     if (typeof R[i].t === 'number' && typeof R[i - 1].t === 'number') timed += 1;
@@ -284,30 +286,43 @@ function drawBrushStroke(
     for (let i = 1; i < m; i += 1) {
       const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
       const dt = Math.max(1, (R[i].t as number) - (R[i - 1].t as number));
-      // 0.05 px/ms 以下当作手抖噪声，按最低速处理（否则抖动点会冒出粗斑）
-      si[i] = Math.min(1, Math.max(0.05, d / dt) / 1.5);
+      spd[i] = d / dt;
     }
-    si[0] = si[1];
-    si[m - 1] = si[m - 2];
+    spd[0] = spd[1];
+    spd[m - 1] = spd[m - 2];
   } else {
     for (let i = 1; i < m; i += 1) {
-      const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
-      si[i] = Math.min(1, d / (base * 1.6));
+      spd[i] = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y) / Math.max(1, base * 0.8);
     }
-    si[0] = si[1];
+    spd[0] = spd[1];
+  }
+  // 本笔速度分布：20 分位当「慢端」、85 分位当「快端」，跨度至少留均值的 30%，除法不会爆
+  let vSum = 0;
+  for (let i = 0; i < m; i += 1) vSum += spd[i];
+  const vMean = vSum / m;
+  const order = spd.slice().sort((a, b) => a - b);
+  const vLo = order[Math.max(0, Math.floor((m - 1) * 0.2))];
+  const vHi = order[Math.max(0, Math.floor((m - 1) * 0.85))];
+  const vSpan = Math.max(vHi - vLo, vMean * 0.3, 0.02);
+  // 速度离散度：整笔越均匀笔锋越弱，但至少保留 80% 的对比 —— 慢写照样要出笔锋
+  const disp = Math.min(1, Math.max(0, (vHi - vLo) / (vMean * 0.55)));
+  const amp = 0.8 + 0.2 * disp;
+  for (let i = 0; i < m; i += 1) {
+    const rel = Math.min(1, Math.max(0, (spd[i] - vLo) / vSpan));
+    si[i] = 0.5 + (rel - 0.5) * amp;
   }
   // 速度场平滑（鼠标高频采样带来的抖动不进到粗细里；平滑两轮让粗细过渡更稳）
   for (let pass = 0; pass < 2; pass += 1) {
     const cp = si.slice();
     for (let i = 1; i < m - 1; i += 1) si[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
   }
-  // ---- 宽度场：慢写约 1.35 倍、匀速约 0.9 倍、快写约 0.75 倍（笔锋更明显）；
-  // 速度接近 0（停笔 / 转折驻笔）再叠加最多 0.4 倍，形成「顿笔」墨头。
+  // ---- 宽度场：本笔较慢处约 1.4 倍、中速约 1.0 倍、较快处约 0.7 倍（相对速度，慢写同样有笔锋）；
+  // 相对速度接近最低（停笔 / 转折驻笔）再叠加最多 0.3 倍，形成「顿笔」墨头。
   const vf = new Array<number>(m).fill(1);
   for (let i = 0; i < m; i += 1) {
     const t = Math.min(1, Math.max(0, si[i]));
-    let f = 1.35 - 0.6 * Math.pow(t, 0.85);
-    if (t < 0.22) f += 0.4 * (1 - t / 0.22);
+    let f = 1.4 - 0.7 * Math.pow(t, 0.9);
+    if (t < 0.12) f += 0.3 * (1 - t / 0.12);
     vf[i] = f;
   }
   // 起笔 / 收笔两端的真实速度
@@ -322,12 +337,12 @@ function drawBrushStroke(
   };
   const sHead = avgSi(0, 2);
   const sTail = avgSi(m - 3, m - 1);
-  // 起笔：慢慢压下去（顿笔起笔）起始就粗；快速入笔是尖入（最小留 0.45 宽，笔锋更利）
-  const headFloor = 0.45 + 0.4 * Math.max(0, Math.min(1, (0.5 - sHead) / 0.4));
-  // 收笔：末端越慢越「收得住」（圆厚），写快了才拉出锋尖（阈值放宽，快收更容易出锋）
-  const tailSharp = Math.max(0, Math.min(1, (sTail - 0.28) / 0.45));
+  // 起笔：本笔起笔相对慢（压笔）就粗、相对快就尖入（最小留 0.42 宽，笔锋更利）
+  const headFloor = 0.42 + 0.4 * Math.max(0, Math.min(1, (0.5 - sHead) / 0.4));
+  // 收笔：末端在本笔里相对慢 → 圆厚收住；相对快 → 拉出锋尖（按相对快慢判定，慢写快收也出锋）
+  const tailSharp = Math.max(0, Math.min(1, (sTail - 0.35) / 0.4));
   const inLen = Math.min(total * 0.35, Math.max(base * 0.9, total * 0.07));
-  const outLen = Math.min(total * 0.28, Math.max(base * (1.1 + 2.6 * tailSharp), base * 1.8));
+  const outLen = Math.min(total * 0.28, Math.max(base * (1.3 + 2.8 * tailSharp), base * 2));
   const widths = new Array<number>(m).fill(0);
   // 数位板书写：笔压直接决定粗细；整笔压力几乎无变化（鼠标 / 普通触屏没有压感数据）时退回速度模型
   let pressure: number[] | null = null;
@@ -347,7 +362,7 @@ function drawBrushStroke(
   if (pressure) {
     // 压感 1 → 约 1.71 倍笔宽，压感 0.5 → 约 0.94 倍，轻按到 0.05 → 约 0.24 倍（对比更强，笔锋更明显）
     for (let i = 0; i < m; i += 1) {
-      widths[i] = Math.max(0.5, base * (0.16 + 1.55 * pressure[i]));
+      widths[i] = Math.max(0.4, base * (0.16 + 1.55 * pressure[i]));
     }
     // 提笔轻收 → 出锋；压力还在 → 圆厚收住
     const pEnd = (pressure[m - 1] + pressure[Math.max(0, m - 2)]) / 2;
@@ -370,7 +385,7 @@ function drawBrushStroke(
       const rem = total - acc[i];
       if (rem < outLen) taper = Math.min(taper, tailFloor + (1 - tailFloor) * Math.pow(rem / (outLen || 1), 1.5));
       if (i === 0) taper = Math.min(taper, 0.14);
-      widths[i] = Math.max(0.5, base * vf[i] * taper);
+      widths[i] = Math.max(0.35, base * vf[i] * taper);
     }
   }
   // 顿笔：原地停留（≥40ms）处沿弧长做平滑加宽（最多约 1.9 倍笔宽）。
