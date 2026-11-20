@@ -68,16 +68,17 @@ export async function pdfToImages(
     throw new Error('打开 PDF 失败（' + describe(e) + '）');
   }
   const total = Math.min(pdf.numPages, maxPages);
-  // 目标像素宽：窗口宽度 × 像素比（最多按 2 倍算）× 1.15 冗余，夹在 1600~2600 之间。
-  // 黑板按容器宽度等比显示，渲染宽 ≥ 显示宽 × dpr 时才不会糊。
+  // 目标像素宽：窗口宽度 × 像素比（最多按 2 倍算）× 1.2 冗余，夹在 1600~3200 之间。
+  // 黑板画布现在按 dpr 出图（逻辑宽 × dpr 物理像素），所以源图宽要 ≥ 逻辑宽 × dpr 才真正清晰：
+  // 以前上限 2600 且缩放上限 4×，A4 只出 2380 宽，在 2 倍屏上仍会差一点。
   const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
   const winW = typeof window !== 'undefined' ? window.innerWidth || 1280 : 1280;
-  const targetPx = Math.min(2600, Math.max(1600, Math.round(winW * dpr * 1.15)));
+  const targetPx = Math.min(3200, Math.max(1600, Math.round(winW * dpr * 1.2)));
   const out: string[] = [];
   for (let i = 1; i <= total; i += 1) {
     const page = await pdf.getPage(i);
     const baseW = page.getViewport({ scale: 1 }).width;
-    const renderScale = Math.min(4, Math.max(scale, targetPx / (baseW || 1)));
+    const renderScale = Math.min(5, Math.max(scale, targetPx / (baseW || 1)));
     const viewport = page.getViewport({ scale: renderScale });
     const canvas = document.createElement('canvas');
     canvas.width = Math.floor(viewport.width);
@@ -95,7 +96,7 @@ export async function pdfToImages(
     } catch (e) {
       throw new Error(`渲染第 ${i} 页失败（${describe(e)}）`);
     }
-    out.push(canvas.toDataURL('image/jpeg', 0.92));
+    out.push(canvas.toDataURL('image/jpeg', 0.94));
     onProgress?.(i, total);
   }
   return out;

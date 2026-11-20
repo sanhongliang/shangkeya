@@ -689,7 +689,23 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       onClear();
       setPages((prev) => prev.map((pg, i) => (i === currentPage ? [] : pg)));
     },
-    getFrame: () => canvasRef.current?.toDataURL('image/jpeg', 0.72) ?? null,
+    getFrame: () => {
+      const c = canvasRef.current;
+      if (!c) return null;
+      // 画布后备像素已按 dpr 放大：帧再原尺寸导出会让 localStorage 里的帧翻倍（有配额风险），
+      // 统一压到最大宽 2000（仍比旧版 1400 清晰），恢复时按容器宽等比缩放，显示不受影响。
+      const MAX_FRAME_W = 2000;
+      if (c.width <= MAX_FRAME_W) return c.toDataURL('image/jpeg', 0.72);
+      const k = MAX_FRAME_W / c.width;
+      const tmp = document.createElement('canvas');
+      tmp.width = MAX_FRAME_W;
+      tmp.height = Math.max(1, Math.round(c.height * k));
+      const tctx = tmp.getContext('2d');
+      if (!tctx) return c.toDataURL('image/jpeg', 0.72);
+      tctx.imageSmoothingQuality = 'high';
+      tctx.drawImage(c, 0, 0, tmp.width, tmp.height);
+      return tmp.toDataURL('image/jpeg', 0.72);
+    },
     getHistoryCount: () => historyRef.current.length,
   }), [undo, onClear, currentPage, pushHistory]);
   // 课件图片组：缩放比例与图片原始像素尺寸（真实像素 1:1 显示）
@@ -716,6 +732,10 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
   // 高度按图片比例 = 原始高 × zoom，溢出容器时纵向滚动条查看；缩放比例 100% = 水平填充，调节范围 10%-100%
   // fitContainer=false（独立黑板窗口）：独立窗口本身 = 容器——画布 = 窗口全尺寸（无 10px 内边距）
   // 透明覆盖书写模式（课件书写层）：画布=容器全尺寸，无比例 contain/内边距/缩放
+  // 高 DPI（macOS Retina / Windows 125%~200% 缩放）：canvas 后备像素 = 逻辑尺寸 × dpr，
+  // 绘制坐标始终按逻辑像素（setTransform 统一缩放），显示尺寸不变。
+  // 以前后备像素等于逻辑尺寸，被系统按物理像素放大，课件与笔迹整体糊一层——这是苹果端「课件不够清晰」的根因。
+  const dpr = Math.min(2, typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1);
   const contentW = overlayMode
     ? Math.max(1, size.w)
     : hasBg
@@ -795,11 +815,16 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    // 形状坐标基准：统一以「标签容器」（canvas 画布）为标准——
-    // 课件图片用原始像素尺寸（缩放由画布物理尺寸体现，笔迹随图同步缩放）；
-    // 无背景（空白页）直接用 canvas 实际物理尺寸（canvas.width/height = 容器尺寸，坐标不偏移）
-    const bw = hasBg ? bgSize!.w : canvas.width;
-    const bh = hasBg ? bgSize!.h : canvas.height;
+    // 高 DPI：后备像素 = 逻辑尺寸 × dpr（见 dpr 定义）。这里统一设一次变换，
+    // 后面所有绘制（背景、笔迹、形状、光标）都按逻辑像素坐标进行，视觉尺寸不变、采样密度翻倍。
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const logW = Math.max(1, Math.round(canvas.width / dpr));
+    const logH = Math.max(1, Math.round(canvas.height / dpr));
+    // 形状坐标基准：统一以「标签容器」（canvas 逻辑尺寸）为标准——
+    // 课件图片用原始像素尺寸（缩放由画布逻辑尺寸体现，笔迹随图同步缩放）；
+    // 无背景（空白页）直接用画布逻辑尺寸（坐标不偏移）
+    const bw = hasBg ? bgSize!.w : logW;
+    const bh = hasBg ? bgSize!.h : logH;
     // fitContainer（课堂容器）：课件拉伸铺满画布（水平填充容器宽、高度按比例），坐标基准 = 画布本身；
     // 否则 = 全画布物理尺寸
     let cw: number;
@@ -810,18 +835,19 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       cw = Math.max(1, Math.round(bgSize!.w * zoom));
       ch = Math.max(1, Math.round(bgSize!.h * zoom));
     } else {
-      cw = canvas.width;
-      ch = canvas.height;
+      cw = logW;
+      ch = logH;
     }
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, logW, logH);
     if (bgRef.current) {
       // 画完整背景（题目信息条隐藏已在帧解码阶段处理，黑板加载的即为处理后的帧）
+      ctx.imageSmoothingQuality = 'high';
       ctx.drawImage(bgRef.current, 0, 0, cw, ch);
     } else if (!hasBg && !overlayMode) {
       // 无课件：画布内绘制黑板样式（占位区为深灰背景，黑板画布按比例居中）
       // overlayMode（课件书写层）：保持透明，不绘制黑板背景/边框
-      const cwReal = canvas.width;
-      const chReal = canvas.height;
+      const cwReal = logW;
+      const chReal = logH;
       if (boardStyle === 'custom' && customBoardRef.current) {
         // 自定义背景板：拉伸铺满整个画布
         ctx.drawImage(customBoardRef.current, 0, 0, cwReal, chReal);
@@ -2555,10 +2581,10 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
             <div className="relative m-auto" style={{ width: contentW, height: contentH }}>
               <canvas
                 ref={canvasRef}
-                width={contentW}
-                height={contentH}
+                width={Math.round(contentW * dpr)}
+                height={Math.round(contentH * dpr)}
                 className="block touch-none"
-                style={{ cursor: toolCursor }}
+                style={{ width: contentW, height: contentH, cursor: toolCursor }}
                 onPointerDown={handleDown}
                 onPointerMove={handleMove}
                 onPointerUp={handleUp}
