@@ -14,7 +14,7 @@ export interface IShape {
   y0: number;
   x1: number;
   y1: number;
-  points: { x: number; y: number; p?: number }[];
+  points: { x: number; y: number; p?: number; t?: number }[];
   text?: string;
   /** 三点弧：圆心(x0,y0) → 起点(x1,y1) → 终点 points[0] */
   arcMode?: 'three';
@@ -187,8 +187,17 @@ function pressureOf(e: { pressure?: number }): number {
   return Math.min(1, v);
 }
 
-/** 带笔锋的书写笔（毛笔感）：按每点笔速生成变宽轮廓——
- *  起笔由细渐入、行笔慢处饱满、快处收细、收笔拉出锋尖，整体用多边形填充，两端自然收成尖。
+/** 走笔时间戳（毫秒）：优先取原生事件时间戳，缺失时退回 performance.now()；用于换算出真实笔速 */
+function eventTime(e: { timeStamp?: number }): number {
+  const t = e.timeStamp;
+  if (typeof t === 'number' && Number.isFinite(t) && t > 0) return t;
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+/** 带笔锋的书写笔（毛笔感）：按走笔速度生成变宽轮廓——
+ *  快写收细、慢写饱满、几乎停住时加宽成「顿笔」墨头；
+ *  收笔按末端速度决定：慢收圆厚收住，快收才拉出锋尖。
+ *  轮廓沿弧长等距重采样 + 宽度窗口平均，避免高频采样造成的边缘毛刺。
  *  坐标按归一化 × 画布宽高换算（与铅笔一致），擦除/框选继续沿用 points 轮廓。 */
 function drawBrushStroke(
   ctx: CanvasRenderingContext2D,
@@ -201,7 +210,7 @@ function drawBrushStroke(
   if (!raw.length) return;
   // 笔宽基准：细/中/粗 → 4/6/9 逻辑像素（笔锋笔比铅笔粗一档，才看得出锋）
   const base = s.size <= 1 ? 4 : s.size === 2 ? 6 : 9;
-  const P = raw.map((p) => ({ x: p.x * w, y: p.y * h }));
+  const P = raw.map((p) => ({ x: p.x * w, y: p.y * h, t: p.t, p: p.p }));
   ctx.fillStyle = s.color;
   const dot = (x: number, y: number) => {
     ctx.beginPath();
@@ -213,45 +222,114 @@ function drawBrushStroke(
     return;
   }
   // 抽稀：长笔画降采样到 ~700 点，保留两端；重绘每帧都会走这里，控制成本
-  let Q: { x: number; y: number }[] = P;
+  let Q: { x: number; y: number; t?: number; p?: number }[] = P;
   if (P.length > 700) {
     const step = Math.ceil(P.length / 700);
     Q = [];
     for (let i = 0; i < P.length; i += step) Q.push(P[i]);
     if (Q[Q.length - 1] !== P[P.length - 1]) Q.push(P[P.length - 1]);
   }
-  // 合并相邻重合点（停笔不动时距离≈0，会让宽度计算失真）
-  const R: { x: number; y: number }[] = [Q[0]];
+  // 合并相邻重合点；真的停在原处（累计停留 ≥40ms）时另记一个「顿笔点」，
+  // 并插入同位置的驻笔点让该处速度趋 0 —— 前者补墨头，后者让笔画本身也变粗
+  const R: { x: number; y: number; t?: number; p?: number }[] = [Q[0]];
+  const holds: { x: number; y: number; ms: number }[] = [];
+  const pushHold = (x: number, y: number, ms: number) => {
+    const prev = holds[holds.length - 1];
+    if (prev && Math.hypot(x - prev.x, y - prev.y) < base * 1.8) {
+      prev.ms = Math.max(prev.ms, ms);
+      prev.x = (prev.x + x) / 2;
+      prev.y = (prev.y + y) / 2;
+    } else {
+      holds.push({ x, y, ms });
+    }
+  };
+  let holdMs = 0;
   for (let i = 1; i < Q.length; i += 1) {
-    if (Math.hypot(Q[i].x - R[R.length - 1].x, Q[i].y - R[R.length - 1].y) > 0.6) R.push(Q[i]);
+    const tail = R[R.length - 1];
+    if (Math.hypot(Q[i].x - tail.x, Q[i].y - tail.y) > 0.6) {
+      if (holdMs >= 48) pushHold(tail.x, tail.y, holdMs);
+      holdMs = 0;
+      R.push(Q[i]);
+    } else if (typeof Q[i].t === 'number') {
+      const prevT = typeof tail.t === 'number' ? tail.t : Q[i].t;
+      const dt = Math.max(0, Q[i].t - prevT);
+      holdMs += dt;
+      if (dt >= 16) R.push({ x: tail.x, y: tail.y, t: Q[i].t, p: Q[i].p });
+      else R[R.length - 1] = { ...tail, t: Q[i].t };
+    }
   }
+  if (holdMs >= 48) pushHold(R[R.length - 1].x, R[R.length - 1].y, holdMs);
   if (R.length < 2) {
     dot(R[0].x, R[0].y);
     return;
   }
   const m = R.length;
-  // 走笔速度 → 宽度因子（快写细、慢写粗，最多 55% 变化，避免粗细跳变）
-  const vf = new Array<number>(m).fill(1);
-  for (let i = 1; i < m; i += 1) {
-    const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
-    vf[i] = 1 - 0.55 * Math.min(1, d / (base * 2.5));
-  }
-  vf[0] = vf[1];
-  // 反复平滑，让粗细变化顺滑（像笔锋而不是锯齿）
-  for (let pass = 0; pass < 4; pass += 1) {
-    const cp = vf.slice();
-    for (let i = 1; i < m - 1; i += 1) vf[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
-  }
-  // 累计弧长 → 起笔渐入 / 收笔出锋（长度同时受笔宽和总长约束，短笔画也有尖）
+  // 累计弧长
   const acc = new Array<number>(m).fill(0);
   let total = 0;
   for (let i = 1; i < m; i += 1) {
     total += Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
     acc[i] = total;
   }
-  const inLen = Math.min(total * 0.5, Math.max(base * 1.1, total * 0.12));
-  const outLen = Math.min(total * 0.55, Math.max(base * 2.4, total * 0.2));
-  // 数位板书写：笔压直接决定粗细；整笔压力几乎无变化（鼠标 / 普通触屏没有压感数据）时，自动退回按速度出锋
+  // ---- 速度指标 si：0 表示停住 / 驻笔，1 表示快速划过 ——
+  // 优先用「位移 / 时间」换算真实笔速（逻辑像素/毫秒）：与鼠标 / 触屏 / 数位板的采样率、帧率无关，
+  // 鼠标高频采样时也不会因为点间距小就整笔一样粗；历史笔迹没有时间戳时退回点间距法。
+  const si = new Array<number>(m).fill(0.5);
+  let timed = 0;
+  for (let i = 1; i < m; i += 1) {
+    if (typeof R[i].t === 'number' && typeof R[i - 1].t === 'number') timed += 1;
+  }
+  const useTime = timed >= (m - 1) * 0.8;
+  if (useTime) {
+    for (let i = 1; i < m; i += 1) {
+      const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
+      const dt = Math.max(1, (R[i].t as number) - (R[i - 1].t as number));
+      // 0.05 px/ms 以下当作手抖噪声，按最低速处理（否则抖动点会冒出粗斑）
+      si[i] = Math.min(1, Math.max(0.05, d / dt) / 1.5);
+    }
+    si[0] = si[1];
+    si[m - 1] = si[m - 2];
+  } else {
+    for (let i = 1; i < m; i += 1) {
+      const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
+      si[i] = Math.min(1, d / (base * 1.6));
+    }
+    si[0] = si[1];
+  }
+  // 速度场平滑（鼠标高频采样带来的抖动不进到粗细里；只做一轮，保住驻笔处的顿笔加粗）
+  {
+    const cp = si.slice();
+    for (let i = 1; i < m - 1; i += 1) si[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
+  }
+  // ---- 宽度场：慢写约 1.55 倍、匀速约 1.0 倍、快写约 0.5 倍；
+  // 速度接近 0（停笔 / 转折驻笔）再叠加最多 0.5 倍，形成「顿笔」墨头。
+  const vf = new Array<number>(m).fill(1);
+  for (let i = 0; i < m; i += 1) {
+    const t = Math.min(1, Math.max(0, si[i]));
+    let f = 1.55 - 1.05 * Math.pow(t, 0.85);
+    if (t < 0.2) f += 0.62 * (1 - t / 0.2);
+    vf[i] = f;
+  }
+  // 起笔 / 收笔两端的真实速度
+  const avgSi = (from: number, to: number) => {
+    let sum = 0;
+    let cnt = 0;
+    for (let i = from; i <= to; i += 1) {
+      sum += si[Math.max(0, Math.min(m - 1, i))];
+      cnt += 1;
+    }
+    return cnt ? sum / cnt : 0.5;
+  };
+  const sHead = avgSi(0, 2);
+  const sTail = avgSi(m - 3, m - 1);
+  // 起笔：慢慢压下去（顿笔起笔）起始就粗；快速入笔是尖入
+  const headFloor = 0.3 + 0.55 * Math.max(0, Math.min(1, (0.5 - sHead) / 0.4));
+  // 收笔：末端越慢越「收得住」（圆厚），写快了才拉出锋尖
+  const tailSharp = Math.max(0, Math.min(1, (sTail - 0.35) / 0.5));
+  const inLen = Math.min(total * 0.35, Math.max(base * 0.8, total * 0.07));
+  const outLen = Math.min(total * 0.45, Math.max(base * (1.0 + 1.9 * tailSharp), total * 0.16));
+  const widths = new Array<number>(m).fill(0);
+  // 数位板书写：笔压直接决定粗细；整笔压力几乎无变化（鼠标 / 普通触屏没有压感数据）时退回速度模型
   let pressure: number[] | null = null;
   if (style === 'tablet') {
     const ps = R.map((pt) => (typeof pt.p === 'number' ? Math.max(0, Math.min(1, pt.p)) : 0.5));
@@ -262,58 +340,118 @@ function drawBrushStroke(
       hi = Math.max(hi, v);
     }
     if (hi - lo >= 0.08) {
-      for (let pass = 0; pass < 3; pass += 1) {
-        const cp = ps.slice();
-        for (let i = 1; i < m - 1; i += 1) ps[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
-      }
       pressure = ps;
     }
   }
-  const widths = new Array<number>(m).fill(0);
+  let sharpEnd = tailSharp;
   if (pressure) {
     // 压感 1 → 约 1.57 倍笔宽，压感 0.5 → 约 0.9 倍，轻按到 0.05 → 约 0.29 倍
     for (let i = 0; i < m; i += 1) {
       widths[i] = Math.max(0.8, base * (0.22 + 1.35 * pressure[i]));
     }
-    // 收笔再轻收一下，形成锋尖而不是圆头
-    widths[m - 1] = Math.max(0.6, widths[m - 1] * 0.55);
+    // 提笔轻收 → 出锋；压力还在 → 圆厚收住
+    const pEnd = (pressure[m - 1] + pressure[Math.max(0, m - 2)]) / 2;
+    sharpEnd = Math.max(0, Math.min(1, (0.45 - pEnd) / 0.35));
+    const outLenP = Math.min(total * 0.45, Math.max(base * (0.6 + 1.6 * sharpEnd), total * 0.14));
+    const floorP = 0.06 + 0.9 * (1 - sharpEnd);
+    for (let i = 0; i < m; i += 1) {
+      const rem = total - acc[i];
+      if (rem < outLenP) {
+        widths[i] *= floorP + (1 - floorP) * Math.pow(rem / (outLenP || 1), 1.5);
+      }
+    }
   } else {
+    // 慢收时几乎不收细（末端保持宽度 + 圆头），快收才收成尖锋
+    const tailFloor = 0.05 + 0.9 * (1 - tailSharp);
     for (let i = 0; i < m; i += 1) {
       let taper = 1;
-      // 起笔：0.34 倍宽渐入
       const ri = acc[i] / (inLen || 1);
-      if (ri < 1) taper = 0.34 + 0.66 * Math.sqrt(ri);
-      // 收笔：最后一段快速收细，形成出锋
+      if (ri < 1) taper = headFloor + (1 - headFloor) * Math.sqrt(ri);
       const rem = total - acc[i];
-      if (rem < outLen) taper = Math.min(taper, 0.05 + 0.95 * Math.pow(rem / (outLen || 1), 1.7));
-      if (i === 0) taper = Math.min(taper, 0.14);
-      if (i === m - 1) taper = Math.min(taper, 0.04);
-      widths[i] = Math.max(0.8, base * vf[i] * taper);
+      if (rem < outLen) taper = Math.min(taper, tailFloor + (1 - tailFloor) * Math.pow(rem / (outLen || 1), 1.5));
+      if (i === 0) taper = Math.min(taper, 0.18);
+      widths[i] = Math.max(0.7, base * vf[i] * taper);
     }
   }
-  // 左右轮廓：沿切向法线偏移半个笔宽；两端再连到中心点 → 尖锋
+  // 顿笔：原地停留（≥40ms）处沿弧长做平滑加宽（最多约 1.9 倍笔宽）。
+  // 用宽度场抬起来而不是叠一个圆点，收笔/转折处才像驻笔留下的墨头。
+  if (holds.length) {
+    const rad = base * 3.2;
+    const endX = R[m - 1].x;
+    const endY = R[m - 1].y;
+    for (let i = 0; i < m; i += 1) {
+      let boost = 1;
+      for (const hp of holds) {
+        // 收笔处的停留交给「圆厚收笔」处理，不再额外鼓一个墨头
+        if (Math.hypot(hp.x - endX, hp.y - endY) < base * 2.5) continue;
+        const dist = Math.hypot(R[i].x - hp.x, R[i].y - hp.y);
+        if (dist < rad) {
+          const k = Math.pow(1 - dist / rad, 1.5) * Math.min(1, hp.ms / 140) * 1.0;
+          if (1 + k > boost) boost = 1 + k;
+        }
+      }
+      widths[i] *= boost;
+    }
+  }
+  // ---- 沿弧长等距重采样：位置与宽度都按弧长线性插值，再对宽度做两轮三点平滑。
+  // 快写时相邻点相距二三十像素，只做插值不做平滑会有台阶，只做窗口平均又会糊掉顿笔与锋尖，
+  // 所以这里「插值 + 轻平滑」，两端按收笔形态单独收紧。
+  const stride = Math.max(1.6, Math.min(3.2, base * 0.34));
+  const steps = Math.max(2, Math.ceil(total / stride));
+  const S: { x: number; y: number; hw: number }[] = [];
+  let seg = 0;
+  for (let k = 0; k <= steps; k += 1) {
+    const target = (k / steps) * total;
+    while (seg < m - 2 && acc[seg + 1] < target) seg += 1;
+    const segLen = acc[seg + 1] - acc[seg] || 1;
+    const rt = Math.min(1, Math.max(0, (target - acc[seg]) / segLen));
+    const x = R[seg].x + (R[seg + 1].x - R[seg].x) * rt;
+    const y = R[seg].y + (R[seg + 1].y - R[seg].y) * rt;
+    const wLin = widths[seg] + (widths[seg + 1] - widths[seg]) * rt;
+    S.push({ x, y, hw: Math.max(0.3, wLin / 2) });
+  }
+  for (let pass = 0; pass < 2; pass += 1) {
+    const cp = S.map((o) => o.hw);
+    for (let k = 1; k < S.length - 1; k += 1) S[k].hw = (cp[k - 1] + cp[k] * 2 + cp[k + 1]) / 4;
+  }
+  // 出锋：末端再收紧成尖，避免平滑后末端还是秃头
+  if (sharpEnd > 0.35 && S.length > 2) {
+    const lastI = S.length - 1;
+    S[lastI].hw = Math.max(0.2, S[lastI].hw * 0.35);
+    S[lastI - 1].hw = Math.max(0.3, S[lastI - 1].hw * 0.72);
+  }
+  // 轮廓：沿法线偏移半宽；末端按收笔形态决定收成尖还是圆头
   const left: { x: number; y: number }[] = [];
   const right: { x: number; y: number }[] = [];
-  for (let i = 0; i < m; i += 1) {
-    const a = R[Math.max(0, i - 1)];
-    const b = R[Math.min(m - 1, i + 1)];
+  for (let k = 0; k < S.length; k += 1) {
+    const a = S[Math.max(0, k - 1)];
+    const b = S[Math.min(S.length - 1, k + 1)];
     let tx = b.x - a.x;
     let ty = b.y - a.y;
     const tl = Math.hypot(tx, ty) || 1;
     tx /= tl;
     ty /= tl;
-    const hw = widths[i] / 2;
-    left.push({ x: R[i].x - ty * hw, y: R[i].y + tx * hw });
-    right.push({ x: R[i].x + ty * hw, y: R[i].y - tx * hw });
+    left.push({ x: S[k].x - ty * S[k].hw, y: S[k].y + tx * S[k].hw });
+    right.push({ x: S[k].x + ty * S[k].hw, y: S[k].y - tx * S[k].hw });
   }
+  const last = S.length - 1;
   ctx.beginPath();
   ctx.moveTo(left[0].x, left[0].y);
-  for (let i = 1; i < m; i += 1) ctx.lineTo(left[i].x, left[i].y);
-  ctx.lineTo(R[m - 1].x, R[m - 1].y);
-  for (let i = m - 1; i >= 0; i -= 1) ctx.lineTo(right[i].x, right[i].y);
-  ctx.lineTo(R[0].x, R[0].y);
+  for (let k = 1; k <= last; k += 1) ctx.lineTo(left[k].x, left[k].y);
+  if (sharpEnd > 0.35) {
+    // 出锋：轮廓收到末端中心点，拉出尖锋
+    ctx.lineTo(S[last].x, S[last].y);
+  }
+  for (let k = last; k >= 0; k -= 1) ctx.lineTo(right[k].x, right[k].y);
+  ctx.lineTo(S[0].x, S[0].y);
   ctx.closePath();
   ctx.fill();
+  if (sharpEnd <= 0.35) {
+    // 慢收：不拉尖，末段补一个圆做圆厚收笔
+    ctx.beginPath();
+    ctx.arc(S[last].x, S[last].y, S[last].hw * 0.95, 0, Math.PI * 2);
+    ctx.fill();
+  }
 }
 
 function drawShape(
@@ -2018,7 +2156,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       y1: p.y,
       points:
         tool === 'brush'
-          ? [{ ...p, p: pressureOf(e) }]
+          ? [{ ...p, p: pressureOf(e), t: eventTime(e) }]
           : tool === 'pencil'
             ? [p]
             : [],
@@ -2027,8 +2165,8 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
 
   const handleMove = (e: React.PointerEvent) => {
     const p = toNorm(e);
-    // 笔锋笔：随点记录笔压（数位板/压感笔为真实压力，鼠标恒 0.5）
-    const brushPoint = { ...p, p: pressureOf(e) };
+    // 笔锋笔：随点记录笔压（数位板/压感笔为真实压力，鼠标恒 0.5）与时间戳（真实走笔速度用，避免不同设备采样率影响粗细）
+    const brushPoint = { ...p, p: pressureOf(e), t: eventTime(e) };
     if (tool === 'select') {
       const dr = selectDragRef.current;
       if (!dr) return;
