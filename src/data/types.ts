@@ -109,6 +109,8 @@ export interface ISettings {
   answerWindowTop: boolean; // 答案窗口置顶
   coursewareWindowTop: boolean; // 课件显示界面置顶
   addCoursewareInClass: boolean; // 添加课件页面在课堂窗口内打开
+  /** 笔锋笔风格：speed=目前的模式（按书写速度出锋）；tablet=数位板书写（按笔压出锋，无压感时自动按速度） */
+  brushStyle?: 'speed' | 'tablet';
 }
 
 export interface IAnnouncement {

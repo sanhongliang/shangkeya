@@ -244,6 +244,42 @@ export default function SettingsPage() {
                   )}
                   </div>
                 </div>
+
+              <div className="mt-4">
+                <p className="mb-1.5 text-sm font-medium">带笔锋笔风格</p>
+                <div className="flex flex-wrap items-center gap-2">
+                  <RadioGroup
+                    value={settings.brushStyle ?? 'speed'}
+                    onValueChange={(v) => patch({ brushStyle: v as ISettings['brushStyle'] })}
+                    className="flex flex-wrap items-center gap-1.5"
+                  >
+                    {(
+                      [
+                        ['speed', '目前的模式（按书写速度出锋）'],
+                        ['tablet', '数位板书写（按笔压出锋）'],
+                      ] as [NonNullable<ISettings['brushStyle']>, string][]
+                    ).map(([m, label]) => (
+                      <div
+                        key={m}
+                        className={
+                          'flex items-center justify-center gap-1.5 rounded-md border px-2 py-1.5 text-sm transition-colors ' +
+                          ((settings.brushStyle ?? 'speed') === m
+                            ? 'border-primary bg-primary/5'
+                            : 'border-input')
+                        }
+                      >
+                        <RadioGroupItem value={m} id={`brush-${m}`} />
+                        <Label htmlFor={`brush-${m}`} className="cursor-pointer text-xs">
+                          {label}
+                        </Label>
+                      </div>
+                    ))}
+                  </RadioGroup>
+                </div>
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  数位板 / 压感笔按压力大小出粗细；用鼠标或普通触屏没有压感数据，会自动按书写速度出锋。
+                </p>
+              </div>
             </CardContent>
           </Card>
         </div>

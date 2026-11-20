@@ -1,6 +1,7 @@
 // EXPORTS: BoardCanvas, IShape
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { ISettings } from '@/data/types';
+import { useAppData } from '@/data/app-store';
 import { cn } from '@/lib/utils';
 import type { LineStyle, ToolId } from './tools';
 
@@ -13,7 +14,7 @@ export interface IShape {
   y0: number;
   x1: number;
   y1: number;
-  points: { x: number; y: number }[];
+  points: { x: number; y: number; p?: number }[];
   text?: string;
   /** 三点弧：圆心(x0,y0) → 起点(x1,y1) → 终点 points[0] */
   arcMode?: 'three';
@@ -179,10 +180,23 @@ function drawArcPath(
   ctx.stroke();
 }
 
+/** 笔锋笔压力取样：数位板/压感笔给真实压力（0~1），鼠标恒 0.5；0 或无效值按 0.5（避免断笔） */
+function pressureOf(e: { pressure?: number }): number {
+  const v = e.pressure;
+  if (typeof v !== 'number' || !Number.isFinite(v) || v <= 0) return 0.5;
+  return Math.min(1, v);
+}
+
 /** 带笔锋的书写笔（毛笔感）：按每点笔速生成变宽轮廓——
  *  起笔由细渐入、行笔慢处饱满、快处收细、收笔拉出锋尖，整体用多边形填充，两端自然收成尖。
  *  坐标按归一化 × 画布宽高换算（与铅笔一致），擦除/框选继续沿用 points 轮廓。 */
-function drawBrushStroke(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: number) {
+function drawBrushStroke(
+  ctx: CanvasRenderingContext2D,
+  s: IShape,
+  w: number,
+  h: number,
+  style: 'speed' | 'tablet' = 'speed',
+) {
   const raw = s.points;
   if (!raw.length) return;
   // 笔宽基准：细/中/粗 → 4/6/9 逻辑像素（笔锋笔比铅笔粗一档，才看得出锋）
@@ -237,18 +251,45 @@ function drawBrushStroke(ctx: CanvasRenderingContext2D, s: IShape, w: number, h:
   }
   const inLen = Math.min(total * 0.5, Math.max(base * 1.1, total * 0.12));
   const outLen = Math.min(total * 0.55, Math.max(base * 2.4, total * 0.2));
+  // 数位板书写：笔压直接决定粗细；整笔压力几乎无变化（鼠标 / 普通触屏没有压感数据）时，自动退回按速度出锋
+  let pressure: number[] | null = null;
+  if (style === 'tablet') {
+    const ps = R.map((pt) => (typeof pt.p === 'number' ? Math.max(0, Math.min(1, pt.p)) : 0.5));
+    let lo = 1;
+    let hi = 0;
+    for (const v of ps) {
+      lo = Math.min(lo, v);
+      hi = Math.max(hi, v);
+    }
+    if (hi - lo >= 0.08) {
+      for (let pass = 0; pass < 3; pass += 1) {
+        const cp = ps.slice();
+        for (let i = 1; i < m - 1; i += 1) ps[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
+      }
+      pressure = ps;
+    }
+  }
   const widths = new Array<number>(m).fill(0);
-  for (let i = 0; i < m; i += 1) {
-    let taper = 1;
-    // 起笔：0.34 倍宽渐入
-    const ri = acc[i] / (inLen || 1);
-    if (ri < 1) taper = 0.34 + 0.66 * Math.sqrt(ri);
-    // 收笔：最后一段快速收细，形成出锋
-    const rem = total - acc[i];
-    if (rem < outLen) taper = Math.min(taper, 0.05 + 0.95 * Math.pow(rem / (outLen || 1), 1.7));
-    if (i === 0) taper = Math.min(taper, 0.14);
-    if (i === m - 1) taper = Math.min(taper, 0.04);
-    widths[i] = Math.max(0.8, base * vf[i] * taper);
+  if (pressure) {
+    // 压感 1 → 约 1.57 倍笔宽，压感 0.5 → 约 0.9 倍，轻按到 0.05 → 约 0.29 倍
+    for (let i = 0; i < m; i += 1) {
+      widths[i] = Math.max(0.8, base * (0.22 + 1.35 * pressure[i]));
+    }
+    // 收笔再轻收一下，形成锋尖而不是圆头
+    widths[m - 1] = Math.max(0.6, widths[m - 1] * 0.55);
+  } else {
+    for (let i = 0; i < m; i += 1) {
+      let taper = 1;
+      // 起笔：0.34 倍宽渐入
+      const ri = acc[i] / (inLen || 1);
+      if (ri < 1) taper = 0.34 + 0.66 * Math.sqrt(ri);
+      // 收笔：最后一段快速收细，形成出锋
+      const rem = total - acc[i];
+      if (rem < outLen) taper = Math.min(taper, 0.05 + 0.95 * Math.pow(rem / (outLen || 1), 1.7));
+      if (i === 0) taper = Math.min(taper, 0.14);
+      if (i === m - 1) taper = Math.min(taper, 0.04);
+      widths[i] = Math.max(0.8, base * vf[i] * taper);
+    }
   }
   // 左右轮廓：沿切向法线偏移半个笔宽；两端再连到中心点 → 尖锋
   const left: { x: number; y: number }[] = [];
@@ -275,7 +316,13 @@ function drawBrushStroke(ctx: CanvasRenderingContext2D, s: IShape, w: number, h:
   ctx.fill();
 }
 
-function drawShape(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: number) {
+function drawShape(
+  ctx: CanvasRenderingContext2D,
+  s: IShape,
+  w: number,
+  h: number,
+  brushStyle: 'speed' | 'tablet' = 'speed',
+) {
   if (s.type === 'image' && s.imageUrl) {
     const img = imageCache.get(s.imageUrl);
     if (!img) return;
@@ -291,7 +338,7 @@ function drawShape(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: numbe
   beginStroke(ctx, s, w, h);
   if (s.type === 'brush') {
     // 带笔锋的书写笔：变宽轮廓填充，不走等宽描边，也不走虚线线型
-    drawBrushStroke(ctx, s, w, h);
+    drawBrushStroke(ctx, s, w, h, brushStyle);
     ctx.restore();
     return;
   }
@@ -705,6 +752,10 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
   }: BoardCanvasProps,
   ref,
 ) {
+  // 笔锋笔风格（设置页「带笔锋笔风格」）：speed=目前的模式（按书写速度出锋）；tablet=数位板书写（按笔压出锋）
+  const { data: appData } = useAppData();
+  const brushStyle: 'speed' | 'tablet' =
+    appData?.settings?.brushStyle === 'tablet' ? 'tablet' : 'speed';
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const bgRef = useRef<HTMLImageElement | null>(null);
@@ -1034,7 +1085,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
         Math.abs(s.y0 - textBox.y0) < 0.001
       )
         continue;
-      drawShape(ctx, s, cw, ch);
+      drawShape(ctx, s, cw, ch, brushStyle);
     }
     if (draft) {
       if (draft.type === 'boxDelete') {
@@ -1071,7 +1122,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
           }
         }
       } else {
-        drawShape(ctx, draft, cw, ch);
+        drawShape(ctx, draft, cw, ch, brushStyle);
       }
     }
     // 文字输入中：黑白相间虚线框（与框选删除预览一致）；确认后不再显示
@@ -1221,7 +1272,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     if (hasFitOffset) {
       ctx.restore();
     }
-  }, [pages, currentPage, draft, eraserPath, size, bgSize, hasBg, zoom, selectedIdx]);
+  }, [pages, currentPage, draft, eraserPath, size, bgSize, hasBg, zoom, selectedIdx, brushStyle]);
   useEffect(() => {
     redrawRef.current = redraw;
   }, [redraw]);
@@ -1965,12 +2016,19 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       y0: p.y,
       x1: p.x,
       y1: p.y,
-      points: tool === 'pencil' || tool === 'brush' ? [p] : [],
+      points:
+        tool === 'brush'
+          ? [{ ...p, p: pressureOf(e) }]
+          : tool === 'pencil'
+            ? [p]
+            : [],
     });
   };
 
   const handleMove = (e: React.PointerEvent) => {
     const p = toNorm(e);
+    // 笔锋笔：随点记录笔压（数位板/压感笔为真实压力，鼠标恒 0.5）
+    const brushPoint = { ...p, p: pressureOf(e) };
     if (tool === 'select') {
       const dr = selectDragRef.current;
       if (!dr) return;
@@ -2239,7 +2297,8 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     if (!draft) return;
     setDraft((prev) => {
       if (!prev) return prev;
-      if (prev.type === 'pencil' || prev.type === 'brush') return { ...prev, points: [...prev.points, p] };
+      if (prev.type === 'brush') return { ...prev, points: [...prev.points, brushPoint] };
+      if (prev.type === 'pencil') return { ...prev, points: [...prev.points, p] };
       if (prev.type === 'arc' && prev.arcMode !== 'three') {
         // 旧式曲线（兼容）：控制点 = 中点 + 鼠标垂向偏移
         const ax = prev.x0;

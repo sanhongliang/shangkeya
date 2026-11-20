@@ -25,6 +25,7 @@ export const DEFAULT_SETTINGS: ISettings = {
   answerWindowTop: true,
   coursewareWindowTop: false,
   addCoursewareInClass: true,
+  brushStyle: 'speed',
 };
 
 const TEXTBOOKS = ['通用版', '新人教版', '上海专用', '浙江专用', '鲁科版', '粤教版'];
