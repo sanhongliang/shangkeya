@@ -208,13 +208,13 @@ function drawBrushStroke(
 ) {
   const raw = s.points;
   if (!raw.length) return;
-  // 笔宽基准：细/中/粗 → 5/7/10 逻辑像素（比铅笔粗一档，才看得出锋）
-  const base = s.size <= 1 ? 5 : s.size === 2 ? 7 : 10;
+  // 笔宽基准：细/中/粗 → 3.5/5/7.5 逻辑像素（整体更清瘦，评讲批注不糊版）
+  const base = s.size <= 1 ? 3.5 : s.size === 2 ? 5 : 7.5;
   const P = raw.map((p) => ({ x: p.x * w, y: p.y * h, t: p.t, p: p.p }));
   ctx.fillStyle = s.color;
   const dot = (x: number, y: number) => {
     ctx.beginPath();
-    ctx.arc(x, y, Math.max(1.5, base * 0.3), 0, Math.PI * 2);
+    ctx.arc(x, y, Math.max(1.1, base * 0.28), 0, Math.PI * 2);
     ctx.fill();
   };
   if (P.length === 1) {
@@ -347,7 +347,7 @@ function drawBrushStroke(
   if (pressure) {
     // 压感 1 → 约 1.57 倍笔宽，压感 0.5 → 约 0.9 倍，轻按到 0.05 → 约 0.29 倍
     for (let i = 0; i < m; i += 1) {
-      widths[i] = Math.max(0.8, base * (0.22 + 1.35 * pressure[i]));
+      widths[i] = Math.max(0.6, base * (0.22 + 1.35 * pressure[i]));
     }
     // 提笔轻收 → 出锋；压力还在 → 圆厚收住
     const pEnd = (pressure[m - 1] + pressure[Math.max(0, m - 2)]) / 2;
@@ -370,7 +370,7 @@ function drawBrushStroke(
       const rem = total - acc[i];
       if (rem < outLen) taper = Math.min(taper, tailFloor + (1 - tailFloor) * Math.pow(rem / (outLen || 1), 1.5));
       if (i === 0) taper = Math.min(taper, 0.18);
-      widths[i] = Math.max(0.7, base * vf[i] * taper);
+      widths[i] = Math.max(0.55, base * vf[i] * taper);
     }
   }
   // 顿笔：原地停留（≥40ms）处沿弧长做平滑加宽（最多约 1.9 倍笔宽）。
