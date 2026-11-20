@@ -179,6 +179,102 @@ function drawArcPath(
   ctx.stroke();
 }
 
+/** 带笔锋的书写笔（毛笔感）：按每点笔速生成变宽轮廓——
+ *  起笔由细渐入、行笔慢处饱满、快处收细、收笔拉出锋尖，整体用多边形填充，两端自然收成尖。
+ *  坐标按归一化 × 画布宽高换算（与铅笔一致），擦除/框选继续沿用 points 轮廓。 */
+function drawBrushStroke(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: number) {
+  const raw = s.points;
+  if (!raw.length) return;
+  // 笔宽基准：细/中/粗 → 4/6/9 逻辑像素（笔锋笔比铅笔粗一档，才看得出锋）
+  const base = s.size <= 1 ? 4 : s.size === 2 ? 6 : 9;
+  const P = raw.map((p) => ({ x: p.x * w, y: p.y * h }));
+  ctx.fillStyle = s.color;
+  const dot = (x: number, y: number) => {
+    ctx.beginPath();
+    ctx.arc(x, y, Math.max(1.5, base * 0.3), 0, Math.PI * 2);
+    ctx.fill();
+  };
+  if (P.length === 1) {
+    dot(P[0].x, P[0].y);
+    return;
+  }
+  // 抽稀：长笔画降采样到 ~700 点，保留两端；重绘每帧都会走这里，控制成本
+  let Q: { x: number; y: number }[] = P;
+  if (P.length > 700) {
+    const step = Math.ceil(P.length / 700);
+    Q = [];
+    for (let i = 0; i < P.length; i += step) Q.push(P[i]);
+    if (Q[Q.length - 1] !== P[P.length - 1]) Q.push(P[P.length - 1]);
+  }
+  // 合并相邻重合点（停笔不动时距离≈0，会让宽度计算失真）
+  const R: { x: number; y: number }[] = [Q[0]];
+  for (let i = 1; i < Q.length; i += 1) {
+    if (Math.hypot(Q[i].x - R[R.length - 1].x, Q[i].y - R[R.length - 1].y) > 0.6) R.push(Q[i]);
+  }
+  if (R.length < 2) {
+    dot(R[0].x, R[0].y);
+    return;
+  }
+  const m = R.length;
+  // 走笔速度 → 宽度因子（快写细、慢写粗，最多 55% 变化，避免粗细跳变）
+  const vf = new Array<number>(m).fill(1);
+  for (let i = 1; i < m; i += 1) {
+    const d = Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
+    vf[i] = 1 - 0.55 * Math.min(1, d / (base * 2.5));
+  }
+  vf[0] = vf[1];
+  // 反复平滑，让粗细变化顺滑（像笔锋而不是锯齿）
+  for (let pass = 0; pass < 4; pass += 1) {
+    const cp = vf.slice();
+    for (let i = 1; i < m - 1; i += 1) vf[i] = (cp[i - 1] + cp[i] * 2 + cp[i + 1]) / 4;
+  }
+  // 累计弧长 → 起笔渐入 / 收笔出锋（长度同时受笔宽和总长约束，短笔画也有尖）
+  const acc = new Array<number>(m).fill(0);
+  let total = 0;
+  for (let i = 1; i < m; i += 1) {
+    total += Math.hypot(R[i].x - R[i - 1].x, R[i].y - R[i - 1].y);
+    acc[i] = total;
+  }
+  const inLen = Math.min(total * 0.5, Math.max(base * 1.1, total * 0.12));
+  const outLen = Math.min(total * 0.55, Math.max(base * 2.4, total * 0.2));
+  const widths = new Array<number>(m).fill(0);
+  for (let i = 0; i < m; i += 1) {
+    let taper = 1;
+    // 起笔：0.34 倍宽渐入
+    const ri = acc[i] / (inLen || 1);
+    if (ri < 1) taper = 0.34 + 0.66 * Math.sqrt(ri);
+    // 收笔：最后一段快速收细，形成出锋
+    const rem = total - acc[i];
+    if (rem < outLen) taper = Math.min(taper, 0.05 + 0.95 * Math.pow(rem / (outLen || 1), 1.7));
+    if (i === 0) taper = Math.min(taper, 0.14);
+    if (i === m - 1) taper = Math.min(taper, 0.04);
+    widths[i] = Math.max(0.8, base * vf[i] * taper);
+  }
+  // 左右轮廓：沿切向法线偏移半个笔宽；两端再连到中心点 → 尖锋
+  const left: { x: number; y: number }[] = [];
+  const right: { x: number; y: number }[] = [];
+  for (let i = 0; i < m; i += 1) {
+    const a = R[Math.max(0, i - 1)];
+    const b = R[Math.min(m - 1, i + 1)];
+    let tx = b.x - a.x;
+    let ty = b.y - a.y;
+    const tl = Math.hypot(tx, ty) || 1;
+    tx /= tl;
+    ty /= tl;
+    const hw = widths[i] / 2;
+    left.push({ x: R[i].x - ty * hw, y: R[i].y + tx * hw });
+    right.push({ x: R[i].x + ty * hw, y: R[i].y - tx * hw });
+  }
+  ctx.beginPath();
+  ctx.moveTo(left[0].x, left[0].y);
+  for (let i = 1; i < m; i += 1) ctx.lineTo(left[i].x, left[i].y);
+  ctx.lineTo(R[m - 1].x, R[m - 1].y);
+  for (let i = m - 1; i >= 0; i -= 1) ctx.lineTo(right[i].x, right[i].y);
+  ctx.lineTo(R[0].x, R[0].y);
+  ctx.closePath();
+  ctx.fill();
+}
+
 function drawShape(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: number) {
   if (s.type === 'image' && s.imageUrl) {
     const img = imageCache.get(s.imageUrl);
@@ -193,6 +289,12 @@ function drawShape(ctx: CanvasRenderingContext2D, s: IShape, w: number, h: numbe
   }
   ctx.save();
   beginStroke(ctx, s, w, h);
+  if (s.type === 'brush') {
+    // 带笔锋的书写笔：变宽轮廓填充，不走等宽描边，也不走虚线线型
+    drawBrushStroke(ctx, s, w, h);
+    ctx.restore();
+    return;
+  }
   if (s.type === 'pencil') {
     if (s.points.length === 1) {
       // 点击（不拖动）：在点击位置画一个实心圆点
@@ -1863,7 +1965,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       y0: p.y,
       x1: p.x,
       y1: p.y,
-      points: tool === 'pencil' ? [p] : [],
+      points: tool === 'pencil' || tool === 'brush' ? [p] : [],
     });
   };
 
@@ -2137,7 +2239,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
     if (!draft) return;
     setDraft((prev) => {
       if (!prev) return prev;
-      if (prev.type === 'pencil') return { ...prev, points: [...prev.points, p] };
+      if (prev.type === 'pencil' || prev.type === 'brush') return { ...prev, points: [...prev.points, p] };
       if (prev.type === 'arc' && prev.arcMode !== 'three') {
         // 旧式曲线（兼容）：控制点 = 中点 + 鼠标垂向偏移
         const ax = prev.x0;
@@ -2506,6 +2608,7 @@ export default forwardRef<BoardCanvasHandle, BoardCanvasProps>(function BoardCan
       case 'eraser':
         return eraserSvgCursor;
       case 'pencil':
+      case 'brush':
         return penSvgCursor;
       default:
         return 'crosshair';

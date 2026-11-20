@@ -17,6 +17,7 @@ import {
 export type ToolId =
   | 'select'
   | 'pencil'
+  | 'brush'
   | 'eraser'
   | 'line'
   | 'arrow'
@@ -186,9 +187,32 @@ function ThickLineIcon({ className }: { className?: string }) {
   );
 }
 
+/** 带笔锋的书写笔：斜置毛笔（笔杆 + 上宽下尖的笔头 + 锋尖） */
+function BrushPenIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className={className}
+    >
+      {/* 笔杆（两条平行线，斜置 45°） */}
+      <line x1="20.6" y1="2.6" x2="10.4" y2="12.8" />
+      <line x1="22.2" y1="4.2" x2="12" y2="14.4" />
+      {/* 笔头：上宽下尖，收成锋尖 */}
+      <path d="M10.4 12.8 12 14.4 3.2 20.8 Z" fill="currentColor" fillOpacity="0.22" />
+      <path d="M10.4 12.8 12 14.4 3.2 20.8" fill="none" />
+    </svg>
+  );
+}
+
 export const TOOLS: { id: ToolId; label: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { id: 'select', label: '鼠标', icon: MousePointer2 },
   { id: 'pencil', label: '画笔', icon: Pencil },
+  { id: 'brush', label: '笔锋', icon: BrushPenIcon },
   { id: 'eraser', label: '橡皮', icon: Eraser },
   { id: 'line', label: '直线', icon: Slash },
   { id: 'arrow', label: '箭头', icon: ArrowUpRight },
