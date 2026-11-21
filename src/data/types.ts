@@ -61,6 +61,8 @@ export interface ICourse {
   /** 排课时间（YYYY-MM-DD HH:mm，服务端 created_at） */
   createdAt?: string;
   summary?: ISummary; // 课堂总结
+  /** 课次本地修改时间戳（完成/内容/备注/课件目录任一改动都刷新；用于多窗口、多端合并时判断谁更新） */
+  _t?: number;
   /** 本节课使用的课件/图片等文件（含本机路径；随 courses 同步到云端，换机可恢复目录） */
   files?: ICourseNode[];
 }

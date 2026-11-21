@@ -242,7 +242,27 @@ export default function AppProvider({ children }: { children: ReactNode }) {
   }, [data, cloudReady, authUser, syncing]);
 
   const setData: IAppDataApi['setData'] = useCallback((updater) => {
-    setDataState((prev) => updater(prev));
+    setDataState((prev) => {
+      const next = updater(prev);
+      // 课次改动统一打修改时间戳：多窗口（首页/课堂/学员页）与手机端各自持有一份数据，
+      // 合并时按 _t 取较新的一方。没有时间戳时"本地优先"会把另一个窗口刚写的完成状态、
+      // 课件目录、内容整片盖回旧值（表现为：课已上完却显示待上课、上节课课件凭空丢失）
+      if (!next || next.courses === prev.courses) return next;
+      const prevById = new Map(prev.courses.map((c) => [c.id, c]));
+      let stamped = false;
+      const courses = next.courses.map((c) => {
+        const p = prevById.get(c.id);
+        if (!p) {
+          if (c._t) return c;
+          stamped = true;
+          return { ...c, _t: Date.now() };
+        }
+        if (p === c || c._t === p._t) return c;
+        stamped = true;
+        return { ...c, _t: Date.now() };
+      });
+      return stamped ? { ...next, courses } : next;
+    });
   }, []);
 
   const login: IAppDataApi['login'] = useCallback(

@@ -127,10 +127,11 @@ export function snapOfBusiness(payload: IAppData): string {
   });
 }
 
-/** 课次合并：本地 courses 与云端课次（手机端可能改动）合并
+/** 课次合并：本地 courses 与云端课次（手机端/另一个窗口可能改动）合并
  *  - 云端有、本地无 → 并入本地（手机端新建的课次保留）
  *  - 本地有、云端无 → 保留本地（随 sync 上传）
- *  - 都有 → 以本地为准（桌面端编辑优先）
+ *  - 都有 → 按课次修改时间戳 _t 取较新的一方（同值/都没有时本地优先），
+ *    并把另一方已有的「课件目录 / 上课内容 / 总结」补进来，避免一边没同步到就抹掉另一边
  */
 export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
   const key = (c: ICourse) => `${c.studentId}|${c.date}|${c.start}`;
@@ -141,23 +142,40 @@ export function mergeCourses(local: ICourse[], remote: ICourse[]): ICourse[] {
   const localKeys = new Set(local.map(key));
   const localIdents = new Set(local.map(ident));
   const remoteByIdent = new Map(remote.map((c) => [ident(c), c]));
-  // 已有课程：总结冲突按修改时间戳较新优先（手机端/桌面端保存时都会带 _t）
-  //  - 都无 _t：以本地为准（桌面端编辑优先，不回写旧值）
-  //  - 只有一方有 _t：有 _t 的一方较新（旧数据补上时间戳后视为更新）
   const merged = local.map((lc) => {
     const rc = remoteByIdent.get(ident(lc));
     if (!rc) return lc;
-    const ls = lc.summary;
-    const rs = rc.summary;
-    if (!ls && !rs) return lc;
-    if (ls && !rs) return lc;
-    if (!ls && rs) return { ...lc, summary: rs };
-    const lt = ls?._t ?? 0;
-    const rt = rs?._t ?? 0;
-    // 只有本地时间戳严格更新才保留本地；无 _t 或时间戳相同一律以云端为准（服务器是权威，
-    // 避免本地“打开弹窗时的默认值”覆盖手机端已保存的真实总结）
-    if (lt > rt) return lc;
-    return { ...lc, summary: rs };
+    const lt = lc._t ?? 0;
+    const rt = rc._t ?? 0;
+    // 课次整体（完成状态 / 内容 / 备注 / 课件目录）按修改时间戳取新；
+    // 都没有时间戳（老数据）时仍以本地为准，但完成状态取「任一方已完成」，
+    // 避免本地还没同步到服务器的完成标记被显示成「待上课」
+    const newer = rt > lt ? rc : lc;
+    const older = rt > lt ? lc : rc;
+    const out: ICourse = { ...newer };
+    if (rt === lt && (lc.done || rc.done)) out.done = true;
+    // 课件目录：取较新一方；较新一方为空而另一方有记录时保留已有的，防"空目录覆盖"
+    if ((out.files?.length ?? 0) === 0 && (older.files?.length ?? 0) > 0) {
+      out.files = older.files;
+    }
+    // 上课内容 / 备注：较新一方为空时用另一方补齐（老数据里这些字段常只在一边有）
+    if (!String(out.content ?? '').trim() && String(older.content ?? '').trim()) {
+      out.content = older.content;
+    }
+    if (!String(out.remark ?? '').trim() && String(older.remark ?? '').trim()) {
+      out.remark = older.remark;
+    }
+    // 总结：按 _t 较新优先；同值或都没有时以云端为准（服务器是权威，
+    // 避免本地"打开弹窗时的默认值"覆盖手机端已保存的真实总结）
+    const ls = out.summary;
+    const os = older === lc ? rc.summary : lc.summary;
+    if (!ls && os) out.summary = os;
+    else if (ls && os) {
+      const lst = ls._t ?? 0;
+      const ost = os._t ?? 0;
+      if (ost > lst || (ost === lst && older !== lc)) out.summary = { ...os, _t: ls._t };
+    }
+    return out;
   });
   for (const rc of remote) {
     if (localIdents.has(ident(rc))) continue; // 同一节课：已由本地版本取代，不复活云端旧行
