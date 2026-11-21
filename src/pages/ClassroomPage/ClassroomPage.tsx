@@ -2896,6 +2896,15 @@ export default function ClassroomPage() {
         ...prev.courseware,
         [DEFAULT_BRANCH]: [...(prev.courseware[DEFAULT_BRANCH] ?? []), file],
       },
+      // 添加即记入本节课的课件目录：首页「备课」、上节课程内容、历史课程记录都以 course.files 为依据，
+      // 之前只在真正「打开/选中」该课件时才记录，刚添加完就仍是空 → 课程一直显示「未备」
+      courses: course
+        ? prev.courses.map((c) =>
+            c.id === course.id && !(c.files ?? []).some((f) => f.id === file.id)
+              ? { ...c, files: [...(c.files ?? []), file] }
+              : c,
+          )
+        : prev.courses,
     }));
     setNewName('');
     setPickedFile(null);
@@ -3343,17 +3352,18 @@ export default function ClassroomPage() {
                     上一节（{prevCourse.date}）未记录课件，显示最近一次有课件的课程（{prevCourseWithFiles.date}）
                   </p>
                 )}
-                {/* 该节填写的课程内容；没填时用该节加载的第一个课件名代替，避免整块空白 */}
+                {/* 该节填写的课程内容；没填时用该节加载的第一个课件名代替，避免整块空白。
+                    课件回溯只影响下面的课件列表：紧邻上节没记课件时，内容仍取紧邻上节填写的课程内容/总结 */}
                 <p
                   className="mb-1 shrink-0 truncate pl-3 pr-2 text-xs text-muted-foreground"
                   title={
-                    prevCourseWithFiles
-                      ? courseLabel(prevCourseWithFiles) || '未填写课程内容'
+                    (prevCourseWithFiles ?? prevCourse)
+                      ? courseLabel(prevCourseWithFiles ?? prevCourse) || '未填写课程内容'
                       : '暂无上节课'
                   }
                 >
-                  {prevCourseWithFiles
-                    ? courseLabel(prevCourseWithFiles) || '未填写课程内容'
+                  {(prevCourseWithFiles ?? prevCourse)
+                    ? courseLabel(prevCourseWithFiles ?? prevCourse) || '未填写课程内容'
                     : '暂无上节课'}
                 </p>
                 {/* 前节课件列表 */}

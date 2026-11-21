@@ -483,7 +483,7 @@ export default function RecordsSection({ student }: RecordsSectionProps) {
         open={addCourseOpen}
         onOpenChange={setAddCourseOpen}
         students={data.students}
-        items={data.schedule.filter((k) => k.table === 2)}
+        courses={data.courses}
         defaultStudentId={student.id}
         lockStudent
         onAdd={(values: AddScheduleValues) => {

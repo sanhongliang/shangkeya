@@ -82,6 +82,21 @@ export function AddScheduleDialog({
   onAdd,
 }: AddScheduleDialogProps) {
   const [studentId, setStudentId] = useState(defaultStudentId ?? students[0]?.id ?? '');
+  // 弹窗常驻挂载、只翻 open：学员编辑页切换学员后再次打开，state 仍停在上一个学员
+  // （表现为「添加课程的学员对不上，课排到别人名下」）。按 defaultStudentId 变化重新回填。
+  const filledForRef = useRef<string>('');
+  useEffect(() => {
+    if (!open) {
+      filledForRef.current = '';
+      return;
+    }
+    if (!lockStudent || !defaultStudentId) return;
+    if (filledForRef.current === defaultStudentId) return;
+    filledForRef.current = defaultStudentId;
+    setStudentId(
+      students.some((s) => s.id === defaultStudentId) ? defaultStudentId : (students[0]?.id ?? ''),
+    );
+  }, [open, lockStudent, defaultStudentId, students]);
   const [startDate, setStartDate] = useState(toISO(new Date()));
   const [startHour, setStartHour] = useState('8');
   const [startMin, setStartMin] = useState('0');
