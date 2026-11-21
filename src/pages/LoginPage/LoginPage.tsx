@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GraduationCap, LogIn, UserPlus, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,14 +10,55 @@ import RegisterDialog from '@/components/RegisterDialog';
 import RechargeDialog from '@/components/RechargeDialog';
 import { useAppData } from '@/data/app-store';
 
+// 记住密码：只存在本机 localStorage，方便下次打开直接点登录；不勾选就清掉
+const REMEMBER_KEY = 'shangkeya:login';
+
+function loadRemember(): { username: string; password: string; remember: boolean } {
+  try {
+    const raw = localStorage.getItem(REMEMBER_KEY);
+    if (!raw) return { username: '', password: '', remember: true };
+    const o = JSON.parse(raw) as { u?: string; p?: string };
+    return { username: String(o.u ?? ''), password: String(o.p ?? ''), remember: true };
+  } catch {
+    return { username: '', password: '', remember: true };
+  }
+}
+
+function saveRemember(username: string, password: string) {
+  try {
+    localStorage.setItem(REMEMBER_KEY, JSON.stringify({ u: username, p: password }));
+  } catch {
+    /* ignore */
+  }
+}
+
+function clearRemember() {
+  try {
+    localStorage.removeItem(REMEMBER_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export default function LoginPage() {
   const { login } = useAppData();
   const navigate = useNavigate();
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
+  const [username, setUsername] = useState(() => loadRemember().username);
+  const [password, setPassword] = useState(() => loadRemember().password);
+  const [remember, setRemember] = useState(() => loadRemember().remember);
   const [busy, setBusy] = useState(false);
   const [registerOpen, setRegisterOpen] = useState(false);
   const [rechargeOpen, setRechargeOpen] = useState(false);
+
+  // 换窗口/刷新时同步一次已记住的账号（本机有多账号时以最后保存的为准）
+  useEffect(() => {
+    const r = loadRemember();
+    if (r.username) {
+      setUsername((cur) => cur || r.username);
+      setPassword((cur) => cur || r.password);
+      setRemember(true);
+    }
+  }, []);
 
   const handleSubmit = async () => {
     if (!username.trim() || !password.trim()) {
@@ -28,6 +69,8 @@ export default function LoginPage() {
     const r = await login(username, password);
     setBusy(false);
     if (r.ok) {
+      if (remember) saveRemember(username.trim(), password);
+      else clearRemember();
       toast.success('登录成功');
       navigate('/home');
     } else {
@@ -79,6 +122,18 @@ export default function LoginPage() {
                 onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
               />
             </div>
+            <label className="flex cursor-pointer select-none items-center gap-2 text-sm text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={remember}
+                onChange={(e) => {
+                  setRemember(e.target.checked);
+                  if (!e.target.checked) clearRemember();
+                }}
+                className="h-4 w-4 accent-[#1677ff]"
+              />
+              记住密码（仅保存在本机，下次打开直接登录）
+            </label>
             <Button className="w-full" onClick={handleSubmit} disabled={busy}>
               <LogIn className="mr-1.5 h-4 w-4" /> {busy ? '登录中…' : '登 录'}
             </Button>

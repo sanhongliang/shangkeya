@@ -4,7 +4,7 @@ import { AppDataContext } from '@/data/app-store';
 import type { IAppDataApi, IAuthUser } from '@/data/app-store';
 import type { IAppData, ICourse, ICourseNode, IStudent } from '@/data/types';
 import { buildSeed } from '@/data/seed';
-import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness, mergeCourses } from '@/api/desktop';
+import { cloudLogin, loadCloudState, syncCloudState, getLastSyncedSnap, markLastSyncedSnap, snapOfBusiness, mergeCourses, refreshToken } from '@/api/desktop';
 import { backupBusinessData } from '@/api/backup';
 import { getToken, setToken } from '@/api/client';
 
@@ -182,6 +182,8 @@ export default function AppProvider({ children }: { children: ReactNode }) {
         });
         loadedRef.current = true;
         setCloudReady(true);
+        // 打开软件就顺手续一次：避免「上次登录已接近 12 小时」时一进来就掉线
+        void refreshToken();
         // 登录后/会话恢复后：学员与课程信息备份到本地
         void backupBusinessData(cloud, authUser?.username).catch(() => undefined);
       } catch {
@@ -324,6 +326,8 @@ export default function AppProvider({ children }: { children: ReactNode }) {
     let stop = false;
     const doAutoRefresh = async () => {
       try {
+        // 先静默续期：软件开着不关，登录态一直有效，不会 12 小时到期突然掉线
+        await refreshToken();
         // 先推送本地变更（如删除课程/修改信息），再拉云端覆盖——
         // 避免"本地删除尚未上传就被云端旧数据覆盖"导致删除的课程刷新后复活
         if (!syncingRef.current) {

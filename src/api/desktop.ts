@@ -89,6 +89,16 @@ export async function fetchMyAccount(): Promise<{ ok: boolean; expires_at?: stri
   return { ok: false, message: r.error?.message ?? '获取账号信息失败' };
 }
 
+/** 静默续期：用当前 token 换一个新 token。软件开着不关时定期调用，登录态就不会 12 小时到期突然掉线 */
+export async function refreshToken(): Promise<boolean> {
+  const r = await api<{ token: string }>('/api/auth/refresh', { method: 'POST', body: {} });
+  if (r.ok && r.data?.token) {
+    setToken(r.data.token);
+    return true;
+  }
+  return false;
+}
+
 /** 拉取云端业务状态（组装 IAppData 业务块；courseware 由本地提供） */
 export async function loadCloudState(): Promise<Partial<IAppData>> {
   const r = await api<Partial<IAppData>>('/api/desktop/state');
